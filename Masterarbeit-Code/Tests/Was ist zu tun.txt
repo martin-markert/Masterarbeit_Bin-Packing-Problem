@@ -1,0 +1,17 @@
+| Reihenfolge | Datei                | Hauptaufgabe                                |  Fertig und getestet? |
+| ----------- | -------------------- | ------------------------------------------- |---------------------- |
+| 1           | environment.py       | Physikalische Umgebung & Zustände           |          Ja           |
+| 2           | network.py           | Transformer-Architektur (Encoder/Decoder)   |      In Arbeit        |
+| 3           | agent.py             | PPO-Agent (Training & Policy)               |         Nein          |
+| 4           | agent_explore_env.py | Multi-Prozess-Erkundung                     |         Nein          |
+| 5           | train.py             | Haupt-Trainingslogik & Logging              |         Nein          |
+| 6           | test.py              | Evaluation                                  |         Nein          |
+| 7           | plot.py              | Visualisierung                              |         Nein          |
+
+
+
+BoxSelectActionPF --> Passt, Nutzt der Actor
+BoxSelectAction --> Passt, Nutzt der Critic
+
+PositionActionPF --> umbenennen zu PositionAction, nutzt der Actor
+PositionAction --> Ab in den Müll, nutzt niemand
