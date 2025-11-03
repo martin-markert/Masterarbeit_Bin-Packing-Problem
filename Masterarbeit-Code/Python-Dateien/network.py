@@ -268,7 +268,6 @@ class Box_Selection(nn.Module):                                                 
 
 
 
-
 class Rotation_Selection(nn.Module):
     def __init__(self,
                 dim_model = params.dim_model,
@@ -341,6 +340,7 @@ class Actor(nn.Module):
     '''
     def forward(self, state, action_old = None):                                                                # state = (plane_features, boxes, rotation_constraints, packing_mask) as in file environment.py
                                                                                                                 # Everything in forward() shall be torch, not np. array or whatever
+                                                                                                                # action_old can be from calculating log probability in PPO
         '''
         Important: Everything in state geth an extra dimension "batch_number"
         .
@@ -366,10 +366,9 @@ class Actor(nn.Module):
         result_list = [result_queue.get() for result_queue in result_queue_list]
         state_list = [result[0] for result in result_list]
 
-        
-
-
         '''
+
+        # Shall be torch.tensors (at least for flatten() to work)
         bin_state = state[0]
         box_state = state[1]
         rotation_constraints = state[2]                                                                         # TODO: Currently unused
@@ -384,14 +383,76 @@ class Actor(nn.Module):
         bin_state_flat = bin_state.flatten(1, 2)
         bin_encoder = self.bin_encoder(bin_state_flat)
 
-        position_logits = self.position_action(bin_encoder, box_encoder)
+        position_logits = self.position_action(bin_encoder, box_encoder)                                        # Returns the raw values for softmax for positions
         box_rotation_shape_all = generate_box_rotations_torch(box_state,                                        # Why torch an not np.array?
                                                               rotation_indices = rotation_constraints)          # One cannot apply Torch operations to it. If one wants to use it in the Actor-forward() function, one has to copy tensors to the GPU (torch.from_numpy(...)) --> unnecessarily slower.
-        position_mask = packing_mask.all(1).all(1)           # TODO. Add comment                                                   # Start with (batch_size, unpacked_boxes_num, 6, bin_size_ds_x, bin_size_ds_y) --> .all() -->        
+        position_mask = packing_mask.all(1).all(1)                                                              # packing_mask contains True for non-packable positions (see ~packing_available in environment.py).
+                                                                                                                # This mask array is later used for softmax masking of the positions:
+                                                                                                                # Start with (batch_size, unpacked_boxes_num, 6, bin_size_ds_x * bin_size_ds_y) --> .all() --> (batch_size, 6, bin_size_ds_x * bin_size_ds_y) --> .all() --> (batch_size, bin_size_ds_x * bin_size_ds_y)
+                                                                                                                # first .all(1): What is done? position_mask[b, r, p] = True if all boxes b are invalid for this rotation r and position p.
+                                                                                                                # second .all(1): What is done? position_mask[b, p] = True if no box b in any rotation can be packed at position p
+                                                                                                                # So the end result can be interpreted as: Can any box in any rotation be packed at a certain position?
+
+        position_mask_softmax = torch.where(position_mask, -1e9, 0.0)                                           # Masking before softmax. If a position is invalid (position_mask == True), then add -1e9 to the logits. If a position is valid (position_mask == False), then add nothing, i.e. 0.0.
+        position_index_probabilities = self.softmax_position_index(position_logits + position_mask_softmax)     # Do the softmax to get the probabilities
+
+        box_select_mask_all = packing_mask.all(2).transpose(1, 2)                                               # Maks for all boxes. True, when no rotation of a box is possible at this position
+        box_rotation_mask_all = packing_mask.permute(0, 3, 1, 2).to(dtype = torch.bool)                         # Mask for all rotations. Changes the order of the dimensions so that rotation masks fit correctly to the boxes and positions.
+                                                                                                                # Shows for each position if one box can be places in a cretain rotation
+
+        if action_old != None:                                                                                  # Training (Exploitation) --> action_old is a tuple: (box_index, position_index, rotation_index)
+            position_index = torch.as_tensor(action_old[1], dtype = torch.int64).to(device)
+        else:                                                                                                   # Sampling (Exploration)
+            position_index = torch.multinomial(position_index_probabilities, num_samples = 1, replacement = True).squeeze(-1)  
+
+        position_feature = select_values_by_indices(bin_state_flat, position_index).unsqueeze(-2)               # Unsqueeze adds an extra dimension ()1. Now: shape: batch_size x 1 x feature_dim. Why? The transformer expects a sequence dimension (Batch × Seq × Features).
+                                                                                                                # Basically: Selects the features of the selected position from each container in the batch. Formats the result so that it can be entered into the transformer as a sequence.
+
+        position_encoder = select_values_by_indices(bin_encoder, position_index).unsqueeze(-2)                  # Returns the context-aware transformer embedding of the selected position. Used later in Box_Selection to condition the box decoding on this position.                                                                                                   
+
+        box_select_mask = select_values_by_indices(box_select_mask_all, position_index)                         # Shows which boxes are unavailable at this position for each batch.
+        box_logits = self.select_box_action(box_encoder, position_feature, position_encoder)                    # Returns the raw values for softmax for boxes
+        box_mask_softmax = torch.where(box_select_mask, -1e9, 0.0)                                              # Masking before softmax. If a box is invalid (box_select_mask == True), then add -1e9 to the logits. If a position is valid (box_select_mask == False), then add nothing, i.e. 0.0.
+        box_index_probabilities = self.softmax_box_index(box_logits + box_mask_softmax)                         # Do the softmax to get the probabilities
+
+        if action_old != None:
+            box_index = torch.as_tensor(action_old[0], dtype = torch.int64).to(device)                          # action_old is a tuple: (box_index, position_index, rotation_index)
+        else:
+            box_index = torch.multinomial(box_index_probabilities, num_samples = 1, replacement = True).squeeze(-1)
+        
+        box_rotation_shape = select_values_by_indices(box_rotation_shape_all, box_index)                        # Selects rotations for selected box
+        rotation_logits = self.rotation_action(box_rotation_shape, position_feature, position_encoder)          # Returns the raw values for softmax for rotations
+
+        rotation_mask_all = select_values_by_indices(box_rotation_mask_all, position_index)                     # Returns invalid rotations
+        rotation_mask = select_values_by_indices(rotation_mask_all, box_index)                                  # Returns rotations of selected box
+        rot_mask_softmax = torch.where(rotation_mask, -1e9, 0.0)                                                # Masking before softmax. If a rotation is invalid (rotation_mask == True), then add -1e9 to the logits. If a position is valid (rotation_mask == False), then add nothing, i.e. 0.0.
+        rotation_probabilities = self.softmax_rotation(rotation_logits + rot_mask_softmax)                      # Do the softmax to get the probabilities
+
+        if action_old != None:
+            rotation_index = torch.as_tensor(action_old[2], dtype = torch.int64).to(device)                     # action_old is a tuple: (box_index, position_index, rotation_index)
+        else:
+            rotation_index = torch.multinomial(rotation_probabilities, num_samples = 1, replacement = True).squeeze(-1)
+        
+        # rotation_index = torch.multinomial(rotation_probabilities, num_samples = 1, replacement = True).squeeze(-1) # <-- Or maybe always choose the rotation deterministically ofr simplicity reasons? position_index and box_index --> important policy decisions, deterministic adoption for log probability. rotation_index --> relatively “local” decision, stochastic, covered later by log probability.
+
+        probabilities = (box_index_probabilities, position_index_probabilities, rotation_probabilities)         # Softmax probabilities for positions, boxes, and rotations
+        action = (box_index, position_index, rotation_index)                                                    # Indices of the selected position, box and its rotation
+
+        return probabilities, action
 
 
-    def great_stuff_maybe():
+    def get_action_and_probabilities(self, state):
+        probabilities_of_actions, action = self.forward(state)
+        return action, probabilities_of_actions
+                                                                                                              
+
+    def get_logprob_entropy():
         pass
+
+
+    def get_old_logprob():
+        pass
+
 
 
 class Critic(nn.Module):
@@ -444,8 +505,15 @@ def convert_decimal_tensor_to_binary(tensor, bit_length):                       
     return (tensor & mask).ne(0).int()
 
 
-def batch_index_select():
-    pass
+def select_values_by_indices(tensor_batch, indices):                                                            # Selects values from a tensor besed on the indices
+    index = indices + torch.arange(0, tensor_batch.size(0)).to(indices.device) * tensor_batch.size(1)           # tensor_batch = torch.tensor([[[1], [2], [3]],
+    tensor_select = tensor_batch.flatten(0, 1).index_select(0, index.to(torch.int))                             #                              [[4], [5], [6]]])
+                                                                                                                # indices = torch.tensor([[0, 2],
+                                                                                                                #                         [1, 2]])
+                                                                                                                # Output: tensor([[1],
+                                                                                                                #                 [3],
+                                                                                                                #                 [5],
+    return tensor_select                                                                                        #                 [6]])
 
 
 # TODO: Check, whether the dimensions are returned correctly as needed [] or [[]] or [[[]]] ...

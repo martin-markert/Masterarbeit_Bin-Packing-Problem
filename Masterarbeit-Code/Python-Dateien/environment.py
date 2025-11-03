@@ -455,7 +455,9 @@ def contains_empty_list(lst):
 
 
 
-
+'''
+    --- Testing the stuff ---
+'''
 def test_env_with_matrix(container_matrix):
     bin_size_x, bin_size_y = container_matrix.shape
     bin_size_z = np.max(container_matrix) + 1
