@@ -455,115 +455,115 @@ def contains_empty_list(lst):
 
 
 
-'''
-    --- Testing the stuff ---
-'''
-def test_env_with_matrix(container_matrix):
-    bin_size_x, bin_size_y = container_matrix.shape
-    bin_size_z = np.max(container_matrix) + 1
-    env = Environment(
-        bin_size_x = bin_size_x,
-        bin_size_y = bin_size_y,
-        bin_size_z = bin_size_z,
-        bin_size_ds_x = 3,
-        bin_size_ds_y = 3,
-        box_num = 2,
-        # min_factor = 0.1,
-        # max_factor = 0.5,
-        rotation_constraints = [[1], []],                                # Or Use [[1,2,3]] or [[1], [2, 4]]. TODO: [[]] or [[], []] has not been tested, yet
-        bin_height_if_not_start_with_all_zeros = container_matrix   # for debugging only, in real life one starts with an empty box
-    )
+# '''
+#     --- Testing the stuff ---
+# '''
+# def test_env_with_matrix(container_matrix):
+#     bin_size_x, bin_size_y = container_matrix.shape
+#     bin_size_z = np.max(container_matrix) + 1
+#     env = Environment(
+#         bin_size_x = bin_size_x,
+#         bin_size_y = bin_size_y,
+#         bin_size_z = bin_size_z,
+#         bin_size_ds_x = 3,
+#         bin_size_ds_y = 3,
+#         box_num = 2,
+#         # min_factor = 0.1,
+#         # max_factor = 0.5,
+#         rotation_constraints = [[1], []],                                # Or Use [[1,2,3]] or [[1], [2, 4]]. TODO: [[]] or [[], []] has not been tested, yet
+#         bin_height_if_not_start_with_all_zeros = container_matrix   # for debugging only, in real life one starts with an empty box
+#     )
 
-    bin_features = env.get_bin_features(container_matrix)
+#     bin_features = env.get_bin_features(container_matrix)
 
 
-    # print("\n=== Original bin features ===")
-    # print(bin_features)
+#     # print("\n=== Original bin features ===")
+#     # print(bin_features)
    
 
-    # Ausgabe formatieren:
-    print("\n=== Original bin features ===")
-    for x in range(bin_size_x):
-        row = " ".join(
-            f"{tuple(int(f) for f in bin_features[x, y, :])}" 
-            for y in range(bin_size_y)
-        )
-        print(row)
+#     # Ausgabe formatieren:
+#     print("\n=== Original bin features ===")
+#     for x in range(bin_size_x):
+#         row = " ".join(
+#             f"{tuple(int(f) for f in bin_features[x, y, :])}" 
+#             for y in range(bin_size_y)
+#         )
+#         print(row)
     
 
     
     
-    bin_state_ds, indices_of_largest_values = env.downsampling(bin_features)
+#     bin_state_ds, indices_of_largest_values = env.downsampling(bin_features)
 
-    print("\n=== Downsampled bin_state ===")
-    print(bin_state_ds)
+#     print("\n=== Downsampled bin_state ===")
+#     print(bin_state_ds)
 
-    print("\n=== Max indices ===")
-    print(indices_of_largest_values)
-
-
-    print("\n=== Downsampled Bin State (bin_state_ds) ===")
-    for x in range(bin_state_ds.shape[0]):
-        row = " ".join(
-            f"{tuple(int(f) for f in bin_state_ds[x, y, :])}"
-            for y in range(bin_state_ds.shape[1])
-        )
-        print(row)
-
-    print("\n=== Max indices ===")
-    print(indices_of_largest_values.reshape(bin_state_ds.shape[0], bin_state_ds.shape[1]))
+#     print("\n=== Max indices ===")
+#     print(indices_of_largest_values)
 
 
+#     print("\n=== Downsampled Bin State (bin_state_ds) ===")
+#     for x in range(bin_state_ds.shape[0]):
+#         row = " ".join(
+#             f"{tuple(int(f) for f in bin_state_ds[x, y, :])}"
+#             for y in range(bin_state_ds.shape[1])
+#         )
+#         print(row)
 
-    boxes, rotation_constraints = env.generate_boxes(env.bin_size_x, env.bin_size_x, env.min_factor, env.max_factor, env.box_num, env.rotation_constraints)
+#     print("\n=== Max indices ===")
+#     print(indices_of_largest_values.reshape(bin_state_ds.shape[0], bin_state_ds.shape[1]))
+
+
+
+#     boxes, rotation_constraints = env.generate_boxes(env.bin_size_x, env.bin_size_x, env.min_factor, env.max_factor, env.box_num, env.rotation_constraints)
     
-    print("\n=== Box array ===")
-    print(boxes)
+#     print("\n=== Box array ===")
+#     print(boxes)
 
 
 
-    mask = env.get_packing_mask(boxes, rotation_constraints, indices_of_largest_values)
+#     mask = env.get_packing_mask(boxes, rotation_constraints, indices_of_largest_values)
     
-    print("\n=== Mask ===")
-    print(mask)   
+#     print("\n=== Mask ===")
+#     print(mask)   
 
 
 
-    reset_plane_features, reset_boxes, reset_rotation_constraints, reset_packing_mask = env.reset(boxes)
-    print("\n=== Reset ===")
-    print("\nReset Plane features:")
-    for plane in reset_plane_features:
-        row_strings = []
-        for cell in plane:
-            row_strings.append(f"({', '.join(str(int(x)) for x in cell)})")
-        print(" ".join(row_strings))
+#     reset_plane_features, reset_boxes, reset_rotation_constraints, reset_packing_mask = env.reset(boxes)
+#     print("\n=== Reset ===")
+#     print("\nReset Plane features:")
+#     for plane in reset_plane_features:
+#         row_strings = []
+#         for cell in plane:
+#             row_strings.append(f"({', '.join(str(int(x)) for x in cell)})")
+#         print(" ".join(row_strings))
 
-    print(f"\n\nReset boxes:\n{reset_boxes} \n\nReset rotation constraints:\n{reset_rotation_constraints} \n\nReset packing mask:\n{reset_packing_mask}")
-
-
-    for _ in range(env.box_num):
-        dummy_action = (0, 0, 0)
-
-        state, reward, done = env.step(dummy_action)
-        print("\n=== Step ===")
-        print("State:", state)
-        print("Reward:", reward)
-        print("Done:", done)
+#     print(f"\n\nReset boxes:\n{reset_boxes} \n\nReset rotation constraints:\n{reset_rotation_constraints} \n\nReset packing mask:\n{reset_packing_mask}")
 
 
+#     for _ in range(env.box_num):
+#         dummy_action = (0, 0, 0)
 
-container_matrix = np.array([   # Add a check, whether height values are integers?
-    [5,5,5,5,4,4,4,4,4],
-    [5,5,5,5,4,4,4,4,4],
-    [5,5,5,5,4,4,4,4,4],
-    [2,2,2,2,2,2,0,3,3],
-    [2,2,2,2,2,2,0,3,3],
-    [2,2,2,2,2,2,0,3,3],
-    [2,2,2,2,2,2,0,3,3],
-    [2,2,2,2,2,2,0,3,3],
-    [0,0,0,0,0,0,0,3,3]
-], dtype = int)
+#         state, reward, done = env.step(dummy_action)
+#         print("\n=== Step ===")
+#         print("State:", state)
+#         print("Reward:", reward)
+#         print("Done:", done)
 
 
-test_env_with_matrix(container_matrix)
+
+# container_matrix = np.array([   # Add a check, whether height values are integers?
+#     [5,5,5,5,4,4,4,4,4],
+#     [5,5,5,5,4,4,4,4,4],
+#     [5,5,5,5,4,4,4,4,4],
+#     [2,2,2,2,2,2,0,3,3],
+#     [2,2,2,2,2,2,0,3,3],
+#     [2,2,2,2,2,2,0,3,3],
+#     [2,2,2,2,2,2,0,3,3],
+#     [2,2,2,2,2,2,0,3,3],
+#     [0,0,0,0,0,0,0,3,3]
+# ], dtype = int)
+
+
+# test_env_with_matrix(container_matrix)
 
