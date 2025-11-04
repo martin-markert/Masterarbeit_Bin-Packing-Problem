@@ -141,7 +141,7 @@ class Bin_Encoder(nn.Module):                                                   
 
         self.binary_dim = binary_dim
         self.positional_encoding_of_bin = Spatial_Positional_Encoding(dim_model, bin_size_x, bin_size_y)        # Fixed positional encoding needed for the bin coordinates
-        self.embedding = nn.Linear(plane_feature_dim, dim_model)                                                      # Linear, because no complicated internal representation is necessary. The features should only be projected into the dim_model space.
+        self.embedding = nn.Linear(plane_feature_dim, dim_model)                                                # Linear, because no complicated internal representation is necessary. The features should only be projected into the dim_model space.
         self.transformer = Transformer_Encoder(dim_model)
 
     def forward(self, bin_state):
@@ -248,8 +248,8 @@ class Box_Selection(nn.Module):                                                 
         self.position_embedding = nn.Sequential(nn.Linear(plane_feature_dim, dim_model), nn.Tanh(),             # Why this? Because the plane features are “raw” data they are embedded here in the dim_model space so that boxes can get attention to position information.
                                                 nn.Linear(dim_model, dim_hidden_1), nn.Tanh(),
         #                                       nn.Linear(dim_hidden_1, dim_hidden_2), nn.Tanh(),
-        #                                    ...
-                                             nn.Linear(dim_hidden_1, dim_model))
+        #                                       ...
+                                                nn.Linear(dim_hidden_1, dim_model))
         self.box_decoder = Transformer_Decoder(dim_model)
         self.fully_connected = nn.Linear(dim_model, 1)                                                          # Linear layer that generates a single score per position from the decoder output.
 
@@ -282,10 +282,10 @@ class Rotation_Selection(nn.Module):
         self.binary_dim = binary_dim
         self.box_rotation_embedding = nn.Linear(3 * binary_dim, dim_model)                                      # 3 * binary_dim for L, W & H
         self.position_embedding = nn.Sequential(nn.Linear(plane_feature_dim, dim_model), nn.Tanh(),
-                                             nn.Linear(dim_model, dim_hidden_1), nn.Tanh(),
-        #                                    nn.Linear(dim_hidden_1, dim_hidden_2), nn.Tanh(),                  # Extra layers if needed
-        #                                    ...
-                                             nn.Linear(dim_hidden_1, dim_model))
+                                                nn.Linear(dim_model, dim_hidden_1), nn.Tanh(),
+        #                                       nn.Linear(dim_hidden_1, dim_hidden_2), nn.Tanh(),                  # Extra layers if needed
+        #                                       ...
+                                                nn.Linear(dim_hidden_1, dim_model))
         self.rotation_decoder = Transformer_Decoder(dim_model)
         self.fully_connected = nn.Linear(dim_model, 1)
 
@@ -310,18 +310,16 @@ class Actor(nn.Module):
     def __init__(self,
                  bin_size_x,
                  bin_size_y,
-                 box_num,
                  dim_model = params.dim_model,
                  binary_dim = params.binary_dim,
                  plane_feature_dim = params.plane_feature_dim
                 ):
         super().__init__()
 
-        self.box_num = box_num              # <-- Not needed
         self.binary_dim = binary_dim
         self.plane_feature_dim = plane_feature_dim
         
-        self.box_encoder = Box_Encoder(dim_model, binary_dim = binary_dim)
+        self.box_encoder = Box_Encoder(dim_model, binary_dim = self.binary_dim)
         self.bin_encoder = Bin_Encoder(dim_model, bin_size_x, bin_size_y, self.plane_feature_dim, self.binary_dim)
         
         self.softmax_position_index = nn.Softmax(-1)
@@ -374,18 +372,20 @@ class Actor(nn.Module):
         rotation_constraints = state[2]                                                                         # TODO: Currently unused
         packing_mask = state[3].flatten(3, 4)                                                                   #  x and y put into one dimension    
         device = bin_state.device
-        batch_size = bin_state.size()[0]
+        # batch_size = bin_state.size()[0]
                                                                                                                 # Theoretically one might have multiple environment processes --> multiple trajectories simultaneously
                                                                                                                 # Then bin_state contains multiple batch elements.
-        box_mask = box_state[:, :, 0] < 0                                                                       # Placed boxes have constant_values = -1e9 (see step() in envuronment.py)
+        box_mask = box_state[:, :, 0] < 0                                                                       # Placed boxes have constant_values = -1e9 (see step() in environment.py)
         rotation_mask = rotation_constraints[:, :, 0] < 0                                                       # TODO: Currently unused
         box_encoder = self.box_encoder(box_state, box_mask)
         bin_state_flat = bin_state.flatten(1, 2)
         bin_encoder = self.bin_encoder(bin_state_flat)
 
+        ''' --- Position --- '''
         position_logits = self.position_action(bin_encoder, box_encoder)                                        # Returns the raw values for softmax for positions
-        box_rotation_shape_all = generate_box_rotations_torch(box_state,                                        # Why torch an not np.array?
-                                                              rotation_indices = rotation_constraints)          # One cannot apply Torch operations to it. If one wants to use it in the Actor-forward() function, one has to copy tensors to the GPU (torch.from_numpy(...)) --> unnecessarily slower.
+        box_rotation_shape_all = generate_box_rotations_torch(box_state,                                        # Shape should be (batch_size, -1, 6, 3)
+                                                              rotation_indices = rotation_constraints)          # Why torch and not np.array?
+                                                                                                                # One cannot apply Torch operations to it. If one wants to use it in the Actor-forward() function, one has to copy tensors to the GPU (torch.from_numpy(...)) --> unnecessarily slower.
         position_mask = packing_mask.all(1).all(1)                                                              # packing_mask contains True for non-packable positions (see ~packing_available in environment.py).
                                                                                                                 # This mask array is later used for softmax masking of the positions:
                                                                                                                 # Start with (batch_size, unpacked_boxes_num, 6, bin_size_ds_x * bin_size_ds_y) --> .all() --> (batch_size, 6, bin_size_ds_x * bin_size_ds_y) --> .all() --> (batch_size, bin_size_ds_x * bin_size_ds_y)
@@ -410,6 +410,7 @@ class Actor(nn.Module):
 
         position_encoder = select_values_by_indices(bin_encoder, position_index).unsqueeze(-2)                  # Returns the context-aware transformer embedding of the selected position. Used later in Box_Selection to condition the box decoding on this position.                                                                                                   
 
+        ''' --- Box --- '''
         box_select_mask = select_values_by_indices(box_select_mask_all, position_index)                         # Shows which boxes are unavailable at this position for each batch.
         box_logits = self.select_box_action(box_encoder, position_feature, position_encoder)                    # Returns the raw values for softmax for boxes
         box_mask_softmax = torch.where(box_select_mask, -1e9, 0.0)                                              # Masking before softmax. If a box is invalid (box_select_mask == True), then add -1e9 to the logits. If a position is valid (box_select_mask == False), then add nothing, i.e. 0.0.
@@ -421,6 +422,8 @@ class Actor(nn.Module):
             box_index = torch.multinomial(box_index_probabilities, num_samples = 1, replacement = True).squeeze(-1)
         
         box_rotation_shape = select_values_by_indices(box_rotation_shape_all, box_index)                        # Selects rotations for selected box
+        
+        ''' --- Rotation --- '''
         rotation_logits = self.rotation_action(box_rotation_shape, position_feature, position_encoder)          # Returns the raw values for softmax for rotations
 
         rotation_mask_all = select_values_by_indices(box_rotation_mask_all, position_index)                     # Returns invalid rotations
@@ -433,36 +436,70 @@ class Actor(nn.Module):
         else:
             rotation_index = torch.multinomial(rotation_probabilities, num_samples = 1, replacement = True).squeeze(-1)
         
-        # rotation_index = torch.multinomial(rotation_probabilities, num_samples = 1, replacement = True).squeeze(-1) # <-- Or maybe always choose the rotation deterministically ofr simplicity reasons? position_index and box_index --> important policy decisions, deterministic adoption for log probability. rotation_index --> relatively “local” decision, stochastic, covered later by log probability.
+        # rotation_index = torch.multinomial(rotation_probabilities, num_samples = 1, replacement = True).squeeze(-1) # <-- Or maybe always choose the rotation deterministically for simplicity reasons? position_index and box_index --> important policy decisions, deterministic adoption for log probability. rotation_index --> relatively “local” decision, stochastic, covered later by log probability.
 
         probabilities = (box_index_probabilities, position_index_probabilities, rotation_probabilities)         # Softmax probabilities for positions, boxes, and rotations
         action = (box_index, position_index, rotation_index)                                                    # Indices of the selected position, box and its rotation
 
-        return probabilities, action
+        return probabilities, action                                                                            # Probabilities are only needed for the PPO updates (Log-Prob + Entropy) --> Only for training/optimisation
 
 
-    def get_action_and_probabilities(self, state):
-        probabilities_of_actions, action = self.forward(state)
-        return action, probabilities_of_actions
+    def get_action_and_probabilities(self, state):                                                              # state = (plane_features, boxes, rotation_constraints, packing_mask) as in file environment.py
+        probabilities_of_actions, action = self.forward(state)                                                  # Simply calls forward() and returns the stuff in reverse order
+        return action, probabilities_of_actions                                                                 # TODO: Needed?
                                                                                                               
-
-    def get_logprob_entropy():
-        pass
-
-
-    def get_old_logprob():
-        pass
-
-
 
 class Critic(nn.Module):
     def __init__(self,
-                
+                 bin_size_x,
+                 bin_size_y,
+                 dim_model = params.dim_model,
+                 binary_dim = params.binary_dim,
+                 plane_feature_dim = params.plane_feature_dim
                 ):
         super().__init__()
 
-    def forward():
-        pass
+        self.binary_dim = binary_dim
+        self.plane_feature_dim = plane_feature_dim
+        
+        self.box_encoder = Box_Encoder(dim_model, binary_dim = self.binary_dim)                                 # Chapter 3.1.3, Value network: The value network uses Transformer encoder–decoder architecture like the policy network [...]
+        self.bin_encoder = Bin_Encoder(dim_model, bin_size_x, bin_size_y, self.plane_feature_dim, self.binary_dim)
+        self.select_box_action = Box_Selection_Without_Plane_Features(dim_model)                                # BoxSelectAction Is “misused” here: In the actor, it is used to select actions. In the critic, it is used as a decoder between bin and box encodings to form a common representation. The decoder output delivers a tensor of the form (batch, bin_size_x*bin_size_y, dim_model) — i.e. a spatial value map. This means that the network learns: How good would it be to place any box at any position in the container?
+                                                                                                                # TODO: Check real shape
+
+        self.fully_connected = nn.Sequential(nn.Linear(bin_size_x * bin_size_y, bin_size_x),                    # Chapter 3.1.3, Value network: [...] to output a numerical value 𝑉().
+                                             nn.ReLU(),                                                         # Why not nn.Tanh()? Because the critic needs to output any real number, not just between -1 and 1. Tanh would clip big or small values and mess up how the critic learns reward scales.
+                                             nn.Linear(bin_size_x, 1))                                          # Decoder, --> value
+
+    def forward(self, state):                                                                                   # state = (plane_features, boxes, rotation_constraints, packing_mask) as in file environment.py
+        bin_state = state[0]
+        box_state = state[1]
+        # rotation_constraints = state[2]                                                                       # Chapter 3.1: The value network outputs a numerical value that represents the state value 𝑉𝜋(𝑠ₜ).
+        # packing_mask = state[3]                                                                               # rotation_constraints = state[2] and
+                                                                                                                # packing_mask = state[3] are not used. Just the current state. The rotation and the packing maks are not part of the value-calculation. They are just important for the packing choice
+                                                                                                                # Advantages of using that: The Critic could assess more realistically how much space is still available and which boxes can still be placed sensibly. V(s) would reflect more precisely on which actions are still possible in this state.
+                                                                                                                # Disadvantages of using it: 1. Potential training complexity
+                                                                                                                #                               More input means larger networks or more complex transformer layers to integrate the masks meaningfully. There is a risk that the critic will become too tied to specific pack details and will generalise less well.
+                                                                                                                #                            2. Change in the role of the critic:
+                                                                                                                #                               Currently, the critic abstracts across boxes and bin states. With packing_mask, it partially approaches action-dependent information, which theoretically makes it ‘action-aware’ – similar to a Q-function Q(s,a), although it still evaluates a state.
+
+        box_mask = box_state[:, :, 0] < 0                                                                       # Placed boxes have constant_values = -1e9 (see step() in envuronment.py)
+        box_encoder = self.box_encoder(box_state, box_mask)
+        bin_state_flat = bin_state.flatten(1, 2)
+        bin_encoder = self.bin_encoder(bin_state_flat)
+
+        value = self.select_box_action(bin_encoder, box_encoder)                                                # Take the current states of the bin and box and tell how good it is?
+        '''
+        Or just use the "normal" Box_selection with dummy plane_features?
+        dummy_plane_features = torch.zeros(batch_size, num_positions, plane_feature_dim, device = bin_state.device)
+        values = self.select_box_action(box_encoder, dummy_plane_features, bin_encoder)
+
+        '''  
+
+        value = self.fully_connected(value)
+
+        return value
+                                                                                                                
 
 
 
@@ -491,7 +528,7 @@ class Box_Selection_Without_Plane_Features(nn.Module):                          
     --- Additional helping functions ---
 '''
 
-def convert_decimal_tensor_to_binary(tensor, bit_length):                                                       # Why can this conversion of tensors to binary be useful?
+def convert_decimal_tensor_to_binary(tensor, bit_length):                                                       # Why can this conversion of tensors to binary be useful? It stabilises the input
     tensor = tensor.long()                                                                                      # Safety machanism so that (tensor & mask) work for sure
     max_val = 2 ** bit_length - 1                                                                               # Instead of specifying large values (e.g. width = 90) directly as scalars, they are passed as n-bit vectors (e.g. [0, 1, 0, 1, 1, 0, 1, 0]).
     if (tensor > max_val).any():                                                                                # This stabilises training, prevents large number ranges and allows the transformer to recognise bitwise patterns.
@@ -519,6 +556,7 @@ def select_values_by_indices(tensor_batch, indices):                            
 # TODO: Check, whether the dimensions are returned correctly as needed [] or [[]] or [[[]]] ...
 def generate_box_rotations_torch(boxes, rotation_constraints = None):                                           # TODO: Illegal rotations are returned as [0, 0, 0] to keep the dimension equal, when something like [[1], [2, 4]] is used. Is that a good solution?
                                                                                                                 # Maybe have all rotations + an extra rotation_mask?
+                                                                                                                # It should be documented that these rotations are interpreted as invalid.
     
     if isinstance(boxes, np.ndarray):
         boxes = torch.tensor(boxes)
@@ -575,7 +613,7 @@ def generate_box_rotations_torch(boxes, rotation_constraints = None):           
     else:
         allowed_rot_expand = allowed_rot.unsqueeze(0).expand(batch_size, -1, -1, -1)
 
-    return torch.gather(boxes_expand, dim = 3, index = allowed_rot_expand)                                      # Gather aloth the last dimension (x, y, z)
+    return torch.gather(boxes_expand, dim = 3, index = allowed_rot_expand)                                      # Gather along the last dimension (x, y, z)
 
 
 
