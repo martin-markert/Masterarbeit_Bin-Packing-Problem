@@ -45,7 +45,11 @@ class Box_Embed(nn.Module):                                                     
     '''
 
     def forward(self, box_state):
+        if not isinstance(box_state, torch.Tensor):
+            box_state = torch.tensor(box_state, dtype = torch.float32)
+        
         batch_size, box_number, _ = box_state.size()                                                            # _ would be L/B/H
+
         box_state = convert_decimal_tensor_to_binary(
              box_state, self.binary_dim).view(batch_size, box_number, 3, self.binary_dim)                       # .view() makes sure that the three box axes are kept apart
                                                                                                                 # ([0,0,1,1,     ([[0,0,1,1], 
@@ -528,18 +532,49 @@ class Box_Selection_Without_Plane_Features(nn.Module):                          
     --- Additional helping functions ---
 '''
 
-def convert_decimal_tensor_to_binary(tensor, bit_length):                                                       # Why can this conversion of tensors to binary be useful? It stabilises the input
-    tensor = tensor.long()                                                                                      # Safety machanism so that (tensor & mask) work for sure
+# def convert_decimal_tensor_to_binary_new_but_not_working(tensor, bit_length):                                   # Why can this conversion of tensors to binary be useful? It stabilises the input
+#     tensor = tensor.long()                                                                                      # Safety machanism so that (tensor & mask) work for sure
+#     max_val = 2 ** bit_length - 1                                                                               # Instead of specifying large values (e.g. width = 90) directly as scalars, they are passed as n-bit vectors (e.g. [0, 1, 0, 1, 1, 0, 1, 0]).
+#     if (tensor > max_val).any():                                                                                # This stabilises training, prevents large number ranges and allows the transformer to recognise bitwise patterns.
+#         warnings.warn(                                                                                          # TODO: Truncates from the left, if bit_length is too small. Problem?
+#             f"At convert_tensor_to_binary() values in x are truncated to {bit_length} bits. "
+#             f"Maximum representable decimal value: {max_val}", 
+#             UserWarning
+#         )
+#     # mask = 2 ** torch.arange(bit_length - 1, -1, -1, device = tensor.device, dtype = tensor.dtype)
+#     mask = (2 ** torch.arange(bit_length - 1, -1, -1, device=tensor.device)).long()
+    
+#     tensor_expanded = tensor.unsqueeze(-1)
+#     tensor_bin = (tensor_expanded & mask) != 0
+#     return tensor_bin.int()
+
+
+def convert_decimal_tensor_to_binary(tensor, bit_length):
+    
     max_val = 2 ** bit_length - 1                                                                               # Instead of specifying large values (e.g. width = 90) directly as scalars, they are passed as n-bit vectors (e.g. [0, 1, 0, 1, 1, 0, 1, 0]).
     if (tensor > max_val).any():                                                                                # This stabilises training, prevents large number ranges and allows the transformer to recognise bitwise patterns.
         warnings.warn(                                                                                          # TODO: Truncates from the left, if bit_length is too small. Problem?
-            f"At convert_tensor_to_binary() values in x are truncated to {bit_length} bits. "
-            f"Maximum representable decimal value: {max_val}", 
+            f"At convert_tensor_to_binary() values in x are truncated to {bit_length} bits.\n"
+            f"The maximum representable decimal value with {bit_length} bits is {max_val}.\n"
+            f"The given tensor has at least one value larger than {max_val}:\n{tensor}", 
             UserWarning
         )
-    # mask = 2 ** torch.arange(bit_length - 1, -1, -1, device = tensor.device, dtype = tensor.dtype)
-    mask = (2 ** torch.arange(bit_length - 1, -1, -1, device=tensor.device)).long()
-    return (tensor & mask).ne(0).int()
+
+    if not isinstance(tensor, torch.Tensor):
+            tensor = torch.tensor(tensor, dtype = torch.float32)
+    
+    if bit_length == 1:
+        tensor_encoding = tensor
+    else:
+        binary_list = []
+        divide = tensor
+        for _ in range(bit_length):
+            binary = divide % 2
+            binary_list.insert(0, binary)
+            divide = torch.div(divide, 2, rounding_mode = 'trunc')
+
+        tensor_encoding = torch.stack(binary_list, -1).flatten(-2, -1)
+    return tensor_encoding
 
 
 def select_values_by_indices(tensor_batch, indices):                                                            # Selects values from a tensor besed on the indices
@@ -670,20 +705,20 @@ class Position_Selection_Old(nn.Module):
 
     # Spatial_Positional_Encoding
 
-dim_model = 8
-bin_size_x = 3
-bin_size_y = 3
-seq_len = bin_size_x * bin_size_y
+# dim_model = 8
+# bin_size_x = 3
+# bin_size_y = 3
+# seq_len = bin_size_x * bin_size_y
 
-batch_size = 1
-box_num = 3
-box_state = torch.tensor([[[1, 2, 3],
-                           [4, 5, 6],
-                           [7, 8, 9]]], dtype=torch.long)
+# batch_size = 1
+# box_num = 3
+# box_state = torch.tensor([[[1, 2, 3],
+#                            [4, 5, 6],
+#                            [7, 8, 9]]], dtype=torch.long)
 
-binary_dim = 4
+# binary_dim = 4
 
-encoder = Spatial_Positional_Encoding(dim_model, bin_size_x, bin_size_y)
-x = torch.arange(batch_size * seq_len * dim_model, dtype=torch.float32).reshape(batch_size, seq_len, dim_model)
-out = encoder(x)
-print("SpatialPositionEncoding output:\n", out)
+# encoder = Spatial_Positional_Encoding(dim_model, bin_size_x, bin_size_y)
+# x = torch.arange(batch_size * seq_len * dim_model, dtype=torch.float32).reshape(batch_size, seq_len, dim_model)
+# out = encoder(x)
+# print("SpatialPositionEncoding output:\n", out)
