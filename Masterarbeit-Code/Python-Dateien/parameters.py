@@ -27,6 +27,7 @@ class Parameters():
         self.binary_dim                       =    8    # Values not specified by authors --> Randon choice of dimensions (well not quite, it is an edicated guess). Will most likey be altered when testing   
         self.dim_model                        =  128          
         self.plane_feature_dim                =    7 * self.binary_dim    # 7 Plane features (6 features + height) * the binary_dim
+        self.batch_size                       =    1
         
         
         ''' Box_Embed() '''                             # See chapter 3.1.3 --> Box encoder
@@ -64,6 +65,14 @@ class Parameters():
         self.transformer_decoder_dropout      = self.transformer_encoder_dropout
 
 
+        ''' Agent '''
+        self.ratio_clip                       =    0.12     # Clip rate of ϵ as in chapter 4.1
+        self.lambda_entropy                   =    0.02     # A weight for entropy regularisation. Value not mentioned in the paper, so it is guessed.
+        self.lambda_gae_adv                   =    0.95     # λ for Generalized Advantage Estimation in PPO as in Schulman et al. - Proximal Policy Optimization Algorithms
+
+        self.learning_rate_actor              =    1e-5     # As in chapter 4.1
+        self.learning_rate_critic             =    1e-4     # As in chapter 4.1
+        self.discount_factor                  =    0.99     # As in chapter 4.1 (looking more into the future the higher this value is)
 
 
         
