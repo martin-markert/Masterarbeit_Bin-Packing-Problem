@@ -133,33 +133,33 @@ def make_env_state():
     # rotation_constraints = state[2]
     # packing_mask = torch.tensor(state[3], dtype = torch.bool).unsqueeze(0)
     
-    # return (plane_features, boxes, rotation_constraints, packing_mask), env       # env = (plane_features, self.boxes, self.rotation_constraints, packing_mask)
+    # return (plane_features, boxes, rotation_constraints, packing_mask), env                               # env = (plane_features, self.boxes, self.rotation_constraints, packing_mask)
     return state, env
 
 
 def test_box_embed():
     state, _ = make_env_state()
     box_state = state[1]
-    box_state = np.expand_dims(box_state, axis = 0)                                 # Artificially adds extra dimension batch_size. For testing purposes it is 1
+    box_state = np.expand_dims(box_state, axis = 0)                                                         # Artificially adds extra dimension batch_size. For testing purposes it is 1
     model = Box_Embed(dim_model = params.dim_model,
                       dim_hidden_1 = params.box_embed_dim_hidden_1,
                       binary_dim = params.binary_dim
                     )
-    out = model(box_state)
-    print(f"Box_Embed output:\n{out}\n")
-    print(f"Box_Embed output shape:\n{out.shape}")                                  # Shape: [samples, num_boxes, dim_model]
+    box_embedding = model(box_state)
+    print(f"Box_Embed output:\n{box_embedding}\n")
+    print(f"Box_Embed output shape:\n{box_embedding.shape}")                                                # Shape: [samples, num_boxes, dim_model]
 
 
 def test_box_encoder():
     state, _ = make_env_state()
     box_state = state[1]
-    box_state = np.expand_dims(box_state, axis = 0)                                 # Artificially adds extra dimension batch_size. For testing purposes it is 1
+    box_state = np.expand_dims(box_state, axis = 0)                                                         # Artificially adds extra dimension batch_size. For testing purposes it is 1
     encoder = Box_Encoder(dim_model = params.dim_model,
                           binary_dim = params.binary_dim
                         )
-    out = encoder(box_state)
-    print(f"Box_Encoder output:\n{out}\n")
-    print(f"Box_Encoder output shape:\n{out.shape}")                                # Shape: [samples, num_boxes, dim_model]
+    box_encoding = encoder(box_state)
+    print(f"Box_Encoder output:\n{box_encoding}\n")
+    print(f"Box_Encoder output shape:\n{box_encoding.shape}")                                               # Shape: [samples, num_boxes, dim_model]
 
 
 def test_spatial_positional_encoding():
@@ -168,23 +168,23 @@ def test_spatial_positional_encoding():
     bin_size_x = env.bin_size_x
     bin_size_y = env.bin_size_y
     seq_len = bin_size_x * bin_size_y
-    input_embeddings = torch.randn(1, seq_len, dim_model)                           # TODO: Better have real ones, not randomly generated ones
+    bin_embedding = torch.randn(params.batch_size, seq_len, dim_model)                                      # TODO: Better have real values, not randomly generated ones
     encoder = Spatial_Positional_Encoding(dim_model,
                                           bin_size_x,
                                           bin_size_y
                                         )
-    out = encoder(input_embeddings)
+    out = encoder(bin_embedding)
     print(f"Spatial_Positional_Encoding output:\n{out}\n")
-    print(f"Spatial_Positional_Encoding output shape:\n{out.shape}")                # Shape: [batch_size, seq_len, dim_model]
+    print(f"Spatial_Positional_Encoding output shape:\n{out.shape}")                                        # Shape: [batch_size, seq_len, dim_model]
 
     
 def test_bin_encoder():
     state, env = make_env_state()
     plane_features = state[0]
     encoder = Bin_Encoder(dim_model = params.dim_model,
-                          bin_size_x = env.bin_size_x,
-                          bin_size_y = env.bin_size_y,
-                          plane_feature_dim = plane_features.shape[-1],
+                          bin_size_x = env.bin_size_ds_x,                                                   # TODO: Shall that be the downsampled sizes?
+                          bin_size_y = env.bin_size_ds_y,
+                          plane_feature_dim = params.plane_feature_dim,
                           binary_dim = params.binary_dim
                         )
     out = encoder(plane_features)
@@ -192,8 +192,20 @@ def test_bin_encoder():
     print(f"Bin_Encoder output shape:\n{out.shape}")    
 
 
-def test_transformer_encoder():
-    x = torch.randn(2, 10, 32)                                                      # Shape: [batch_size, seq_len, dim_model]          TODO :Update to real values                                    
+def test_transformer_encoder():                                                                             # TODO: Check, whether all the shapes are chosen correctly
+    state, env = make_env_state()
+    plane_features = state[0]                                                                               # Shape: [bin_x, bin_y, plane_feature_dim]
+    _, _, plane_feature_dim = plane_features.shape
+    seq_len = env.bin_size_ds_x * env.bin_size_ds_x                                                         # TODO: Really the downsampled stuff?
+
+    x = torch.tensor(plane_features, dtype=torch.float32).unsqueeze(0)                                      # Shape: [batch_size, bin_x, bin_y, plane_feature_dim]
+    x = x.view(params.batch_size, seq_len, plane_feature_dim)
+    embedding_layer = nn.Linear(plane_feature_dim, params.dim_model)
+    x = embedding_layer(x)
+    pos_encoder = Spatial_Positional_Encoding(params.dim_model, env.bin_size_ds_x, env.bin_size_ds_x)
+    x = pos_encoder(x)
+    # x_old = torch.randn(params.batch_size, seq_len, params.dim_model)                                           # Shape: [batch_size, seq_len, dim_model]    TODO: Update to real values                                    
+    
     model = Transformer_Encoder(dim_model = params.dim_model,
                                 num_heads = params.transformer_encoder_num_head,
                                 dim_hidden_1 = params.transformer_encoder_dim_hidden_1,
@@ -204,9 +216,13 @@ def test_transformer_encoder():
     print(f"Transformer_Encoder output shape:\n{out.shape}") 
 
 
-def test_transformer_decoder():
-    query = torch.randn(2, 10, 32)
-    key = torch.randn(2, 15, 32)
+def test_transformer_decoder():                                                                         
+    _, env = make_env_state()
+    num_boxes = env.box_num
+    dim_model = params.dim_model
+    
+    query = torch.randn(params.batch_size, num_boxes, dim_model)                                            # Shape: [batch_size, seq_len, dim_model] --> seq_len: e.g. 10 positions or 10 boxes
+    key = torch.randn(params.batch_size, num_boxes, dim_model)                                              # Shape: [batch_size, seq_len, dim_model] --> seq_len: can differ from query
     model = Transformer_Decoder(dim_model = params.dim_model,
                                 num_heads = params.transformer_encoder_num_head,
                                 dim_hidden_1 = params.transformer_decoder_dim_hidden_1,
@@ -218,8 +234,13 @@ def test_transformer_decoder():
 
     
 def test_position_selection():
-    bin_encoder_out = torch.randn(1, 81, 32)
-    box_encoder_out = torch.randn(1, 3, 32)
+    _, env = make_env_state()
+    seq_len = env.bin_size_x * env.bin_size_y
+    box_num = env.box_num 
+    dim_model = params.dim_model   
+    
+    bin_encoder_out = torch.randn(params.batch_size, seq_len, dim_model)                                    # Shape: [batch_size, seq_len, dim_model]
+    box_encoder_out = torch.randn(params.batch_size, box_num, dim_model)                                    # Shape: [batch_size, box_num, dim_model]
     decoder = Position_Selection(dim_model = params.dim_model
                                 )
     out = decoder(bin_encoder_out, box_encoder_out)
@@ -228,9 +249,29 @@ def test_position_selection():
 
 
 def test_box_selection():
-    box_encoding = torch.randn(1, 3, 32)
-    position_features = torch.randn(1, 81, 7)
-    position_encoding = torch.randn(1, 81, 32)
+    state, env = make_env_state()
+    seq_len = env.bin_size_x * env.bin_size_y
+    box_num = env.box_num 
+    dim_model = params.dim_model
+    plane_feature_dim = params.plane_feature_dim   
+    boxes = state[1]                                                                                        # Shape: [num_boxes, 3]
+    boxes = np.expand_dims(boxes, axis = 0)                                                                 # add dimension: batch_size = 1
+    bin_embedding = torch.randn(params.batch_size, seq_len, dim_model)                                      # TODO: Better have real values, not randomly generated ones
+    
+    box_encoder = Box_Encoder(dim_model = params.dim_model,
+                              binary_dim = params.binary_dim
+                            )
+    box_encoding = box_encoder(boxes)                                                                       # Shape: [batch_size, box_num, dim_model]
+
+    pos_encoder = Spatial_Positional_Encoding(dim_model,
+                                              env.bin_size_x,
+                                              env.bin_size_y
+                                            )
+    position_features = pos_encoder(bin_embedding)                                                          # Shape: [batch_size, seq_len, plane_feature_dim]
+    
+    # box_encoding_old = torch.randn(params.batch_size, box_num, dim_model)
+    # position_features_old = torch.randn(params.batch_size, seq_len, plane_feature_dim)
+    position_encoding = torch.randn(params.batch_size, seq_len, dim_model)                                  # Shape: [batch_size, seq_len, dim_model]
     decoder = Box_Selection(dim_model = params.dim_model, 
                             plane_feature_dim = params.plane_feature_dim,
                             binary_dim = params.binary_dim
@@ -241,15 +282,36 @@ def test_box_selection():
 
 
 def test_rotation_selection():
-    box_rot_state = torch.randint(1, 10, (1, 6, 3))
-    position_features = torch.randn(1, 81, 7)
-    position_encoding = torch.randn(1, 81, 32)
-    decoder = Rotation_Selection(dim_model = params.dim_model,
-                                 dim_hidden_1 = params.rotation_selection_dim_hidden_1,
-                                 plane_feature_dim = params.plane_feature_dim,
-                                 binary_dim = params.binary_dim
-                                )
-    out = decoder(box_rot_state, position_features, position_encoding)
+    state, env = make_env_state()
+    batch_size = params.batch_size
+    dim_model = params.dim_model
+    binary_dim = params.binary_dim
+    seq_len = env.bin_size_ds_x * env.bin_size_ds_y
+    plane_features = state[0]
+    plane_feature_dim = 7                                                                                   # or params.plane_feature_dim? But then shape mismatch
+    boxes = state[1][0]                                                                                     # Simulate the one selected box
+    boxes = torch.tensor(boxes, dtype = torch.float32).unsqueeze(0)
+
+    position_features = torch.tensor(plane_features, dtype = torch.float32).unsqueeze(0)
+    position_features = position_features.view(batch_size, seq_len, plane_feature_dim)
+    
+    embedding_layer = nn.Linear(plane_feature_dim, dim_model)
+    position_features = embedding_layer(position_features)
+    
+    pos_encoder = Spatial_Positional_Encoding(dim_model = dim_model,
+                                              bin_size_x = env.bin_size_x,
+                                              bin_size_y = env.bin_size_y
+                                            )
+    position_encoding = pos_encoder(position_features)
+
+    # position_features_old = torch.randn(1, 81, 7)
+    # position_encoding_old = torch.randn(batch_size, seq_len, dim_model)                                  # Shape: [batch_size, seq_len, dim_model]
+    
+    rotation_decoder = Rotation_Selection(dim_model = dim_model,
+                                          plane_feature_dim = plane_feature_dim,
+                                          binary_dim = binary_dim
+                                        )
+    out = rotation_decoder(boxes, position_features, position_encoding)
     print(f"Rotation_Selection output:\n{out}\n")
     print(f"Rotation_Selection output shape:\n{out.shape}")
 
@@ -285,8 +347,21 @@ def test_critic():
 
 
 def test_box_selection_without_plane_features():
-    box_encoding = torch.randn(1, 3, 32)
-    bin_embedding = torch.randn(1, 81, 32)
+    state, env = make_env_state()
+    dim_model = params.dim_model
+    seq_len = env.bin_size_x * env.bin_size_y
+    boxes = state[1]                                                                                        # Shape: [num_boxes, 3]
+    boxes = np.expand_dims(boxes, axis = 0)                                                                 # add dimension: batch_size = 1
+    
+    encoder = Box_Encoder(dim_model = params.dim_model,
+                          binary_dim = params.binary_dim
+                        )
+    box_encoding = encoder(boxes)  
+    
+    # box_encoding_old = torch.randn(1, 3, 32)
+    
+    bin_embedding = torch.randn(params.batch_size, seq_len, dim_model)
+    
     model = Box_Selection_Without_Plane_Features(dim_model = params.dim_model)
     out = model(box_encoding, bin_embedding)
     print(f"Box_Selection_Without_Plane_Features output:\n{out}\n")
@@ -319,17 +394,21 @@ if __name__ == "__main__":
     # test_env_with_matrix(container_matrix)
 
 
-    ''' network.py '''
+    ''' network.py with empty bin '''
     
     # test_box_embed()                                                              # Works
     # test_box_encoder()                                                            # Works
     # test_spatial_positional_encoding()                                            # Works
-    test_bin_encoder()
-    # test_transformer_encoder()
-    # test_transformer_decoder()
-    # test_position_selection()
+    # test_bin_encoder()
+    # test_transformer_encoder()                                                    # Works
+    # test_transformer_decoder()                                                    # Works
+    # test_position_selection()                                                     # Works
     # test_box_selection()
     # test_rotation_selection()
     # test_actor()
     # test_critic()
-    # test_box_selection_without_plane_features()
+    # test_box_selection_without_plane_features()                                   # Works
+
+
+    ''' network.py with pre-filled bin '''
+    # TODO Do it
