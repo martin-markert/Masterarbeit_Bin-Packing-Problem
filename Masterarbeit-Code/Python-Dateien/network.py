@@ -127,8 +127,8 @@ class Spatial_Positional_Encoding(nn.Module):                                   
                                                                                                                 # Example: (1, 3, 3, 8) --> (1, 3*3, 8) --> (1, 9, 8)
             self.register_buffer('pos', pos)                                                                    # As the positional encodings are fixed (not learnable), they need to be saved as a fixed tensor. They are the same during the entire training
         
-        def forward(self, input_embeddings):
-            return input_embeddings + self.pos                                                                  # Add the corresponding position vector to each input embedding
+        def forward(self, bin_embedding):
+            return bin_embedding + self.pos                                                                  # Add the corresponding position vector to each input embedding
 
 
 
@@ -193,7 +193,7 @@ class Transformer_Decoder(nn.Module):
     def __init__(self,        
                  dim_model = params.dim_model,
                  num_heads = params.transformer_decoder_num_head,                                               # Amount of attention heads
-                 dim_hidden_1 = params.transformer_decoder_dim_hidden_1,                                            # Hidden layers/feed-forward layers
+                 dim_hidden_1 = params.transformer_decoder_dim_hidden_1,                                        # Hidden layers/feed-forward layers
                  dropout = params.transformer_decoder_dropout,
                  num_layers = params.transformer_decoder_num_layers                                             # Amount of decoder layers (see “Nx” in Figure 1 in Vaswani et al., 2017)
                 ):
