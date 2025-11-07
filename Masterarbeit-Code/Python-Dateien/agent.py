@@ -3,6 +3,7 @@ import parameters as p
 
 import torch
 import logging
+import numpy as np
 
 params = p.Parameters()  
 
@@ -71,9 +72,9 @@ class Agent:
     
 
     def explore_environment_multiprocessing(self,
-                                            action_queue_list,
-                                            result_queue_list,
-                                            target_step,
+                                            action_queue_list,                                  # Queue for each environment to pass actions from the agent
+                                            result_queue_list,                                  # Queue to retrieve the results from the environments
+                                            target_step,                                        # How many steps shall be collected?
                                             reward_scale,
                                             discount_factor                                     # The authors set the discount factor 𝛾 is to 0.99
                                         ):                                                      # Run several processes simultaneously to gain a lot of experience more quickly.
@@ -85,13 +86,30 @@ class Agent:
                                                                                                 # srdan = (state, reward, done, action, noise)
         last_done = [0] * process_num                                                           # Stores for each process at which iteration step the last done = True episode ended. Used later to extract only the relevant (completed) data per process:
 
-        result_list = [result_queue.get() for result_queue in result_queue_list]                # result_list = [result_0, --> (state, reward, done, goal). The goal is the packing efficiancy
-                                                                                                #                result_1, --> (state, reward, done, goal)
+        result_list = [result_queue.get() for result_queue in result_queue_list]                # result_list = [result_0, --> result_x = (state, reward, done, goal). The goal is the packing efficiancy/use ration
+                                                                                                #                result_1,
                                                                                                 #                ...     ]
 
-        state_list = [result[0] for result in result_list]                                      # state_list = [state_env0_, --> (bin_state, box_state, packing_mask) 
-                                                                                                #               state_env1_, --> (bin_state, box_state, packing_mask) 
+        state_list = [result[0] for result in result_list]                                      # state_list = [state_env_0, --> state_env_x = (bin_state, box_state, packing_mask) 
+                                                                                                #               state_env_1,
                                                                                                 #               ...        ]
+        
+        for i in range(target_step // process_num):                                             # The division ensures that each environment contributes approximately target_step / process_num steps.
+            state = list(map(list, zip(*state_list)))                                           # Transposes the state_list to process all box states together and all bin states together in batches. Then makes it a list
+            state = [torch.as_tensor(np.array(s), dtype = torch.float32, device = self.device) for s in state]  # Make state a PyTorch tensor. Firwst numpy array, to ensure that the data is of a uniform type
+            action, probabilities = self.actor.get_action_and_probabilities(state)
+            action_list = np.array([act.detach().cpu().numpy() for act in actions]).transpose()
+            probs_list = list(zip(*[prob.detach().cpu().numpy() for prob in probs]))
+            action_int_list = action_list.tolist()
+            [action_queue_list[pi].put(action_int_list[pi]) for pi in range(process_num)]
+            result_list = [result_queue.get() for result_queue in result_queue_list]
+
+            for process_index in range(process_num):
+                if result_list[2][process_index]:                                               # if process is done
+                    self.goal_avg = (self.goal_avg * episode_num + result_list[3][process_index]) / (episode_num + 1)
+                    episode_num += 1
+                    last_done[process_index] = i
+
 
 
 
