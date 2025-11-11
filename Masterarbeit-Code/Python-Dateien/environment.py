@@ -52,7 +52,10 @@ class Environment:
 
     # Environment constraints   
         # self.original_bin_heights = np.zeros((self.bin_size_x, self.bin_size_y))                                  # Creates the empty 2D Matrix of the bin with all heights = 0
-        self.original_bin_heights = bin_height_if_not_start_with_all_zeros                                          # TODO: This line is for debugging. Remove later and replace by line above
+        if bin_height_if_not_start_with_all_zeros is None:
+            bin_height_if_not_start_with_all_zeros = np.zeros((self.bin_size_x, self.bin_size_y))
+        self.original_bin_heights = bin_height_if_not_start_with_all_zeros                                          # TODO: This line is for debugging. Remove those 3 lines later and replace by line above
+        
         self.original_plane_features = self.get_bin_features(self.original_bin_heights)                             # Calculates the plane-feature matrix
         self.block_size_x = self.bin_size_x // self.bin_size_ds_x                                                   # Size of one downsampling block (cells per block in the x direction) --> Technically “//” is not needed as for the downsampling only divisions with no remainder are allowed
         self.block_size_y = self.bin_size_y // self.bin_size_ds_y                                                   # Size of one downsampling block (cells per block in the y direction)
