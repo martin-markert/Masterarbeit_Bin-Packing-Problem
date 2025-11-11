@@ -128,7 +128,7 @@ class Spatial_Positional_Encoding(nn.Module):                                   
             self.register_buffer('pos', pos)                                                                    # As the positional encodings are fixed (not learnable), they need to be saved as a fixed tensor. They are the same during the entire training
         
         def forward(self, bin_embedding):
-            return bin_embedding + self.pos                                                                  # Add the corresponding position vector to each input embedding
+            return bin_embedding + self.pos                                                                     # Add the corresponding position vector to each input embedding
 
 
 
@@ -150,6 +150,7 @@ class Bin_Encoder(nn.Module):                                                   
 
     def forward(self, bin_state):
         bin_embedding = convert_decimal_tensor_to_binary(bin_state, self.binary_dim)
+        bin_embedding = bin_embedding.view(-1, bin_embedding.shape[-1]).unsqueeze(0)                            # To get the dimensions/shapes right TODO: Has beed added white testing. Is this working in productive usage?
         bin_embedding = self.embedding(bin_embedding)
         bin_embedding = self.positional_encoding_of_bin(bin_embedding)
         bin_encoding = self.transformer(bin_embedding)
@@ -450,7 +451,28 @@ class Actor(nn.Module):
 
     def get_action_and_probabilities(self, state):                                                              # state = (plane_features, boxes, rotation_constraints, packing_mask) as in file environment.py
         probabilities_of_actions, action = self.forward(state)                                                  # Simply calls forward() and returns the stuff in reverse order
+        
         return action, probabilities_of_actions                                                                 # TODO: Needed?
+    
+
+    def get_old_logprob(self, action, probabilities):
+        irxy_distribution = [torch.distributions.Categorical(prob) for prob in probabilities]                   # irxy stands for index, rotation x/y coordinate
+                                                                                                                # A categorical distribution is generated for each sub-action (select box, select position, select rotation). torch.distributions.Categorical(prob) --> generates a distribution object that can be used to calculate log probability.
+        log_prob_irxy = [irxy_distribution[i].log_prob(action[i]) for i in range(len(irxy_distribution))]       # Log probability of the selected action under the old policy.
+        log_prob = sum(log_prob_irxy)                                                                           # Since each action consists of 3 sub-actions, the log probability is added to obtain the joint probability of the combined action.
+        
+        return log_prob
+    
+
+    def get_logprob_entropy(self, state, action):
+        irxy_probabilities, _ = self.forward(state, action_old = action)
+        irxy_distribution = [torch.distributions.Categorical(prob) for prob in irxy_probabilities]
+        log_prob_irxy = [irxy_distribution[i].log_prob(action[i]) for i in range(len(irxy_distribution))]
+        log_prob = sum(log_prob_irxy)
+        irxy_entropy = [dist.entropy().mean() for dist in irxy_distribution]
+        entropy = sum(entropy)
+        
+        return log_prob, entropy
                                                                                                               
 
 class Critic(nn.Module):
