@@ -381,7 +381,7 @@ class Actor(nn.Module):
                                                                                                                 # Theoretically one might have multiple environment processes --> multiple trajectories simultaneously
                                                                                                                 # Then bin_state contains multiple batch elements.
         box_mask = box_state[:, :, 0] < 0                                                                       # Placed boxes have constant_values = -1e9 (see step() in environment.py)
-        rotation_mask = rotation_constraints[:, :, 0] < 0                                                       # TODO: Currently unused
+        # rotation_mask = rotation_constraints[:, :, 0] < 0                                                     # TODO: Currently unused
         box_encoder = self.box_encoder(box_state, box_mask)
         bin_state_flat = bin_state.flatten(1, 2)
         bin_encoder = self.bin_encoder(bin_state_flat)
@@ -389,7 +389,7 @@ class Actor(nn.Module):
         ''' --- Position --- '''
         position_logits = self.position_action(bin_encoder, box_encoder)                                        # Returns the raw values for softmax for positions
         box_rotation_shape_all = generate_box_rotations_torch(box_state,                                        # Shape should be (batch_size, -1, 6, 3)
-                                                              rotation_indices = rotation_constraints)          # Why torch and not np.array?
+                                                              rotation_constraints = rotation_constraints)      # Why torch and not np.array?
                                                                                                                 # One cannot apply Torch operations to it. If one wants to use it in the Actor-forward() function, one has to copy tensors to the GPU (torch.from_numpy(...)) --> unnecessarily slower.
         position_mask = packing_mask.all(1).all(1)                                                              # packing_mask contains True for non-packable positions (see ~packing_available in environment.py).
                                                                                                                 # This mask array is later used for softmax masking of the positions:
@@ -628,7 +628,7 @@ def generate_box_rotations_torch(boxes, rotation_constraints = None):           
         [1, 2, 0],  # 3: (y, z, x) --> Box tipped forward/backward and then rotated 90°         #  \
         [0, 2, 1],  # 4: (x, z, y) --> Box tipped to the left or right                          #   \
         [2, 0, 1]   # 5: (z, x, y) --> Box tipped to the left or right and then rotated 90°     #    _|
-    ], device = device)                                                                         #      x
+    ], device = device, dtype=torch.long)                                                       #      x
                                                                                                 #
                                                                                                 #       ^
                                                                                                 #       |
@@ -651,7 +651,7 @@ def generate_box_rotations_torch(boxes, rotation_constraints = None):           
             for r in rotation_constraints:
                 r_tensor = base_rotations[r]
                 if len(r) < max_rot:
-                    pad = torch.zeros((max_rot - len(r), 3), device=device, dtype=torch.long)                   # Padding to [0, 0, 0], to keep the shape the same, so that torch is happy. I am not happy with that, yet
+                    pad = torch.zeros((max_rot - len(r), 3), device=device, dtype=torch.long)                # Padding to [0, 0, 0], to keep the shape the same, so that torch is happy. I am not happy with that, yet
                     r_tensor = torch.cat([r_tensor, pad], dim=0)
                 allowed_rot_list.append(r_tensor)
             allowed_rot = torch.stack(allowed_rot_list, dim=0)
@@ -664,7 +664,7 @@ def generate_box_rotations_torch(boxes, rotation_constraints = None):           
             )
 
     # Expand for Batch
-    boxes_expand = boxes.unsqueeze(2).expand(-1, -1, num_rot, -1)
+    boxes_expand = boxes.unsqueeze(2).expand(-1, -1, num_rot, -1).float()
     if allowed_rot.dim() == 2:
         allowed_rot_expand = allowed_rot.unsqueeze(0).unsqueeze(0).expand(batch_size, box_num, -1, -1)
     else:
