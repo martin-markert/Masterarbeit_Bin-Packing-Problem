@@ -2,6 +2,7 @@ import parameters as p
 
 from environment import *
 from network import *
+from agent import *
 
 import torch
 import torch.nn as nn
@@ -12,6 +13,7 @@ import numpy as np
     --- Initialise the environment ---
 '''
 
+params = p.Parameters() 
 
 def make_empty_environment():
     bin_size_x, bin_size_y, bin_size_z = 9, 9, 100
@@ -58,6 +60,7 @@ def make_environment_with_prefilled_container(container_matrix):
 '''
     --- Testing the file environment.py ---
 '''
+
 
 def test_empty_environment_initialisation():
     env = Environment(
@@ -362,7 +365,6 @@ def test_contains_empty_list():
 
 
 
-
 '''
     --- Testing the file network.py ---
 '''
@@ -473,7 +475,7 @@ def test_bin_encoder(container_matrix = None):
 
     assert out.shape == (1, seq_len, params.dim_model)                                                      # Shape: [samples, seq_len, dim_model]
 
-    print("test_spatial_positional_encoding passed.")
+    print("test_bin_encoder passed.")
 
 
 def test_transformer_encoder(container_matrix = None):                                                      # TODO: Check, whether all the shapes are chosen correctly
@@ -509,7 +511,7 @@ def test_transformer_encoder(container_matrix = None):                          
     
     assert out.shape == (1, seq_len, params.dim_model)                                                      # Shape: [batch_size, seq_len, dim_model]
 
-    print("test_spatial_positional_encoding passed.") 
+    print("test_transformer_encoder passed.") 
 
 
 def test_transformer_decoder(container_matrix = None):                                                                         
@@ -581,38 +583,69 @@ def test_box_selection(container_matrix = None):
     )
 
     state = env.reset()
-    seq_len = env.bin_size_x * env.bin_size_y
-    box_num = env.box_num 
-    dim_model = params.dim_model
-    plane_feature_dim = params.plane_feature_dim   
+
+# Boxes stuff
     boxes = state[1]                                                                                        # Shape: [num_boxes, 3]
-    boxes = np.expand_dims(boxes, axis = 0)                                                                 # add dimension: batch_size = 1
-    bin_embedding = torch.randn(params.batch_size, seq_len, dim_model)                                      # TODO: Better have real values, not randomly generated ones
+    boxes = np.expand_dims(boxes, axis = 0)                                                                 # add dimension: batch_size = 1 --> [batch_size, num_boxes, 3]
+    box_mask = boxes[:, :, 0] < 0
+    box_mask = torch.tensor(box_mask, dtype = torch.float32)  
     
     box_encoder = Box_Encoder(dim_model = params.dim_model,
                               binary_dim = params.binary_dim
                             )
-    box_encoding = box_encoder(boxes)                                                                       # Shape: [batch_size, box_num, dim_model]
+    box_encoding = box_encoder(boxes, box_mask)
 
-    pos_encoder = Spatial_Positional_Encoding(dim_model,
-                                              env.bin_size_x,
-                                              env.bin_size_y
-                                            )
-    position_features = pos_encoder(bin_embedding)                                                          # Shape: [batch_size, seq_len, plane_feature_dim]
-    
-    # box_encoding_old = torch.randn(params.batch_size, box_num, dim_model)
-    # position_features_old = torch.randn(params.batch_size, seq_len, plane_feature_dim)
-    position_encoding = torch.randn(params.batch_size, seq_len, dim_model)                                  # Shape: [batch_size, seq_len, dim_model]
-    decoder = Box_Selection(dim_model = params.dim_model, 
+# Plane-feature stuff
+    bin_state = torch.tensor(state[0], dtype = torch.float32)                                               # In real life this should already be a PyTorch tensor
+    bin_state = bin_state.unsqueeze(0)                                                                      # Shape: [1, 3, 3, 7]
+    bin_state_flat = bin_state.flatten(1, 2)                                                                # Shape: [1, 3 * 3, 7]
+
+    softmax_position_index = nn.Softmax(-1)
+    position_action = Position_Selection(params.dim_model)
+
+    bin_encoder = Bin_Encoder(params.dim_model, env.bin_size_ds_x, env.bin_size_ds_y, params.plane_feature_dim, params.binary_dim)
+    bin_encoding = bin_encoder(bin_state_flat)
+
+    position_logits = position_action(bin_encoding, box_encoding)
+
+    packing_mask = torch.tensor(state[3], dtype = torch.float32)                                            # In real life this should already be a PyTorch tensor
+    packing_mask = packing_mask.unsqueeze(0)  
+    packing_mask = packing_mask.flatten(3, 4)
+
+    position_mask = packing_mask.all(1).all(1)
+    pos_mask_softmax = torch.where(position_mask, -1e9, 0.0)
+
+    position_index_prob = softmax_position_index(position_logits + pos_mask_softmax)
+    position_index = torch.multinomial(position_index_prob, num_samples = 1, replacement = True).squeeze(-1)
+
+    plane_features = select_values_by_indices(bin_state_flat, position_index).unsqueeze(-2)
+
+# Positional-encoding stuff
+    position_encoding = select_values_by_indices(bin_encoding, position_index).unsqueeze(-2)
+
+    decoder = Box_Selection(dim_model = params.dim_model,
                             plane_feature_dim = params.plane_feature_dim,
                             binary_dim = params.binary_dim
                         )
-    out = decoder(box_encoding, position_features, position_encoding)
-    print(f"Box_Selection output:\n{out}\n")
-    print(f"Box_Selection output shape:\n{out.shape}")
+    
+    box_selection_logits = decoder(box_encoding,                                                                       # Expected shape: (batch, seq_len)
+                                   plane_features,
+                                   position_encoding
+                                )
+    
+    # print(box_encoding.shape)
+    # print(plane_features.shape)
+    # print(position_encoding.shape)
+    # print(box_selection_logits)
+    
+    assert box_selection_logits.shape == (1, env.box_num)
+    assert not torch.isnan(box_selection_logits).any()
+    assert box_selection_logits.dtype == torch.float32
+
+    print ("test_box_selection passed")
 
 
-def test_rotation_selection(container_matrix = None):
+def test_rotation_selection(container_matrix = None, boxes = None, rotation_constraints = None):
     env = Environment(
         bin_size_x    =  9,
         bin_size_y    =  9,
@@ -623,41 +656,96 @@ def test_rotation_selection(container_matrix = None):
         bin_height_if_not_start_with_all_zeros = container_matrix
     )
 
-    state = env.reset()
-    batch_size = params.batch_size
-    dim_model = params.dim_model
-    binary_dim = params.binary_dim
-    seq_len = env.bin_size_ds_x * env.bin_size_ds_y
-    plane_features = state[0]
-    plane_feature_dim = 7                                                                                   # or params.plane_feature_dim? But then shape mismatch
-    
-    selected_box = state[1][0]                                                                              # Simulate the one selected box
-    selected_box = torch.tensor(selected_box, dtype = torch.float32).unsqueeze(0)
-    position_features = torch.tensor(plane_features, dtype = torch.float32).unsqueeze(0)
-    position_features = position_features.view(batch_size, seq_len, plane_feature_dim)
-    
-    embedding_layer = nn.Linear(plane_feature_dim, dim_model)
-    position_features = embedding_layer(position_features)
-    
-    pos_encoder = Spatial_Positional_Encoding(dim_model = dim_model,
-                                              bin_size_x = env.bin_size_ds_x,
-                                              bin_size_y = env.bin_size_ds_y
-                                            )
-    position_encoding = pos_encoder(position_features)
+    state = env.reset(boxes = boxes, rotation_constraints = rotation_constraints)
 
-    # position_features_old = torch.randn(1, 81, 7)
-    # position_encoding_old = torch.randn(batch_size, seq_len, dim_model)                                  # Shape: [batch_size, seq_len, dim_model]
-    
-    rotation_decoder = Rotation_Selection(dim_model = dim_model,
-                                          plane_feature_dim = plane_feature_dim,
-                                          binary_dim = binary_dim
+    rotation_select = Rotation_Selection(dim_model = params.dim_model,
+                                         dim_hidden_1 = params.rotation_selection_dim_hidden_1,
+                                         plane_feature_dim = params.plane_feature_dim,
+                                         binary_dim = params.binary_dim
                                         )
-    out = rotation_decoder(selected_box, position_features, position_encoding)
-    print(f"Rotation_Selection output:\n{out}\n")
-    print(f"Rotation_Selection output shape:\n{out.shape}")
+
+# Box-encoder stuff
+    boxes = state[1]                                                                                        # Shape: [num_boxes, 3]
+    boxes = np.expand_dims(boxes, axis = 0)                                                                 # add dimension: batch_size = 1 --> [batch_size, num_boxes, 3]
+    box_mask = boxes[:, :, 0] < 0
+    box_mask = torch.tensor(box_mask, dtype = torch.float32) 
+
+    rotation_constraints = state[2]
+    box_rotation_shape_all = generate_box_rotations_torch(boxes, rotation_constraints = rotation_constraints)
+
+    softmax_box_index = nn.Softmax(-1)
+
+    select_box_action = Box_Selection(dim_model = params.dim_model,
+                                      plane_feature_dim = params.plane_feature_dim,
+                                      binary_dim = params.binary_dim
+                                    )
+    
+    box_encoder = Box_Encoder(dim_model = params.dim_model, binary_dim = params.binary_dim)
+    box_encoding = box_encoder(boxes, box_mask)
+
+# Position-feature stuff
+    bin_state = torch.tensor(state[0], dtype = torch.float32)                                               # In real life this should already be a PyTorch tensor
+    bin_state = bin_state.unsqueeze(0)                                                                      # Shape: [1, 3, 3, 7]
+    bin_state_flat = bin_state.flatten(1, 2)                                                                # Shape: [1, 3 * 3, 7]
+    
+    softmax_position_index = nn.Softmax(-1)
+
+    position_action = Position_Selection(dim_model = params.dim_model)
+    bin_encoder = Bin_Encoder(dim_model = params.dim_model,
+                              bin_size_x = env.bin_size_ds_x,
+                              bin_size_y = env.bin_size_ds_x,
+                              plane_feature_dim = params.plane_feature_dim,
+                            binary_dim = params.binary_dim
+                            )
+
+    bin_encoding = bin_encoder(bin_state_flat)
+    position_logits = position_action(bin_encoding, box_encoding)
+
+    packing_mask = torch.tensor(state[3], dtype = torch.float32)                                            # In real life this should already be a PyTorch tensor
+    packing_mask = packing_mask.unsqueeze(0)  
+    packing_mask = packing_mask.flatten(3, 4)
+
+    position_mask = packing_mask.all(1).all(1)
+    pos_mask_softmax = torch.where(position_mask, -1e9, 0.0)
+
+    position_index_prob = softmax_position_index(position_logits + pos_mask_softmax)
+    position_index = torch.multinomial(position_index_prob, num_samples = 1, replacement = True).squeeze(-1)
+    
+    position_feature = select_values_by_indices(bin_state_flat, position_index).unsqueeze(-2)
+
+# Position-encoder stuff
+    position_encoder = select_values_by_indices(bin_encoding, position_index).unsqueeze(-2)
+    
+    
+    
+    box_index_logits = select_box_action(box_encoding, position_feature, position_encoder)
+
+    box_select_mask_all = packing_mask.all(2).transpose(1, 2)
+    box_select_mask = select_values_by_indices(box_select_mask_all, position_index)
+    box_softmax_mask = torch.where(box_select_mask, -1e9, 0.0)
+
+    box_index_prob = softmax_box_index(box_index_logits + box_softmax_mask)
+    box_index = torch.multinomial(box_index_prob, num_samples = 1, replacement = True).squeeze(-1)
+    
+    rotation_index = select_values_by_indices(box_rotation_shape_all, box_index)
+    plane_features = select_values_by_indices(bin_state_flat, position_index).unsqueeze(-2)
+    position_encoding = select_values_by_indices(bin_encoding, position_index).unsqueeze(-2)
+
+    rotation_logits = rotation_select(rotation_index,
+                                      plane_features,
+                                      position_encoding
+                                    )
+    
+    # print(rotation_logits)
+
+    assert rotation_logits.ndim == 2
+    assert rotation_logits.shape[0] == 1
+    assert not torch.isnan(rotation_logits).any()
+
+    print ("test_rotation_selection passed")
 
 
-def test_actor():
+def test_actor(container_matrix = None, boxes = None, rotation_constraints = None):
     env = Environment(
         bin_size_x    =  9,
         bin_size_y    =  9,
@@ -668,40 +756,92 @@ def test_actor():
         bin_height_if_not_start_with_all_zeros = container_matrix
     )
 
-    state = env.reset()
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    state = tuple(
-        torch.as_tensor(s, dtype = torch.float32, device = device) if i < 3 else torch.as_tensor(s, dtype = torch.bool, device = device)
-        for i, s in enumerate(state)
-    )
+    state = env.reset(boxes, rotation_constraints)
 
-
-    actor = Actor(
-        bin_size_x = env.bin_size_x,
-        bin_size_y = env.bin_size_y,
-        dim_model = params.dim_model,
-        binary_dim = params.binary_dim,
-        plane_feature_dim = state[0].shape[-1]
-    )
-    
-    actor.to(device)
-
-    bin_state = state[0].unsqueeze(0)                                                               # In prducitve use, batch_size would be already there (I hope)
-    box_state = state[1].unsqueeze(0)
-    rotation_constraints = state[2].unsqueeze(0)
-    packing_mask = state[3].unsqueeze(0)
+    bin_state = torch.tensor(state[0], dtype = torch.float32)
+    bin_state = bin_state.unsqueeze(0)
+    box_state = torch.tensor(state[1], dtype = torch.float32)
+    box_state = box_state.unsqueeze(0)
+    rotation_constraints = state[2]
+    # rotation_constraints = torch.tensor(state[2], dtype = torch.float32)
+    # rotation_constraints = rotation_constraints.unsqueeze(0)
+    packing_mask = torch.tensor(state[3], dtype = torch.float32)
+    packing_mask = packing_mask.unsqueeze(0)
 
     state = (bin_state, box_state, rotation_constraints, packing_mask)
+
+    actor = Actor(bin_size_x = env.bin_size_ds_x,
+                  bin_size_y = env.bin_size_ds_y,
+                  dim_model = params.dim_model,
+                  binary_dim = params.binary_dim,
+                  plane_feature_dim = params.plane_feature_dim
+                )
+
+    probabilities, action = actor(state)
+
+    print(
+            f"Box probabilities:\t{probabilities[0]}\n"
+            f"Position probabilities:\t{probabilities[1]}\n"
+            f"Rotation probabilities:\t{probabilities[2]}\n\n"
+        )
+    print(
+            f"Box index:\t{action[0]}\n"
+            f"Position index:\t{action[1]}\n"
+            f"Rotation index:\t{action[2]}"
+        )
+
+    print("test_actor passed")
+
+    assert isinstance(probabilities, tuple) and len(probabilities) == 3
+    assert all(torch.is_tensor(p) for p in probabilities)
+    assert all((p >= 0).all() for p in probabilities)
+    assert isinstance(action, tuple) and len(action) == 3
+    for a in action:
+        assert torch.is_tensor(a)
+
+
+# def test_critic(container_matrix = None):
+#     env = Environment(
+#         bin_size_x    =  9,
+#         bin_size_y    =  9,
+#         bin_size_z    = 10,
+#         bin_size_ds_x =  3,
+#         bin_size_ds_y =  3,
+#         box_num       =  2,
+#         bin_height_if_not_start_with_all_zeros = container_matrix
+#     )
+
+#     state = env.reset()
+#     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+#     state = tuple(
+#         torch.as_tensor(s, dtype = torch.float32, device = device) if i < 3 else torch.as_tensor(s, dtype = torch.bool, device = device)
+#         for i, s in enumerate(state)
+#     )
+
+
+#     bin_state = state[0].unsqueeze(0)                                                               # In prducitve use, batch_size would be already there (I hope)
+#     box_state = state[1].unsqueeze(0)
+#     rotation_constraints = state[2].unsqueeze(0)
+#     packing_mask = state[3].unsqueeze(0)
+
+#     state = (bin_state, box_state, rotation_constraints, packing_mask)
+
+#     critic = Critic(bin_size_x = env.bin_size_x,
+#                     bin_size_y = env.bin_size_y,
+#                     dim_model = params.dim_model,
+#                     binary_dim = params.binary_dim,
+#                     plane_feature_dim = state[0].shape[-1]
+#                 )
     
-    with torch.no_grad():
-        probabilities, action = actor(state)
+#     critic.to(device)
 
-    print("Actor output:")
-    print("Probabilities (tuple of 3):", [p.shape for p in probabilities])
-    print("Action (tuple):", [a.shape for a in action])
+#     with torch.no_grad():
+#         value = critic(state)
+#     print(f"Critic value:\n{value}\n")
+#     print(f"Critic value shape:\n{value.shape}")
 
 
-def test_critic(container_matrix = None):
+def test_critic(container_matrix = None, boxes = None, rotation_constraints = None):
     env = Environment(
         bin_size_x    =  9,
         bin_size_y    =  9,
@@ -712,34 +852,35 @@ def test_critic(container_matrix = None):
         bin_height_if_not_start_with_all_zeros = container_matrix
     )
 
-    state = env.reset()
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    state = tuple(
-        torch.as_tensor(s, dtype = torch.float32, device = device) if i < 3 else torch.as_tensor(s, dtype = torch.bool, device = device)
-        for i, s in enumerate(state)
-    )
+    state = env.reset(boxes, rotation_constraints)
 
-
-    bin_state = state[0].unsqueeze(0)                                                               # In prducitve use, batch_size would be already there (I hope)
-    box_state = state[1].unsqueeze(0)
-    rotation_constraints = state[2].unsqueeze(0)
-    packing_mask = state[3].unsqueeze(0)
+    bin_state = torch.tensor(state[0], dtype = torch.float32)
+    bin_state = bin_state.unsqueeze(0)
+    box_state = torch.tensor(state[1], dtype = torch.float32)
+    box_state = box_state.unsqueeze(0)
+    rotation_constraints = state[2]
+    # rotation_constraints = torch.tensor(state[2], dtype = torch.float32)
+    # rotation_constraints = rotation_constraints.unsqueeze(0)
+    packing_mask = torch.tensor(state[3], dtype = torch.float32)
+    packing_mask = packing_mask.unsqueeze(0)
 
     state = (bin_state, box_state, rotation_constraints, packing_mask)
-
-    critic = Critic(bin_size_x = env.bin_size_x,
-                    bin_size_y = env.bin_size_y,
+    
+    critic = Critic(bin_size_x = env.bin_size_ds_x,
+                    bin_size_y = env.bin_size_ds_y,
                     dim_model = params.dim_model,
                     binary_dim = params.binary_dim,
                     plane_feature_dim = state[0].shape[-1]
                 )
     
-    critic.to(device)
+    value = critic(state)
 
-    with torch.no_grad():
-        value = critic(state)
-    print(f"Critic value:\n{value}\n")
-    print(f"Critic value shape:\n{value.shape}")
+    print(value)
+    
+    assert value.shape == (1, 1)
+    assert not torch.isnan(value).any()
+
+    print("test_critic passed")
 
 
 def test_box_selection_without_plane_features(container_matrix = None):
@@ -764,7 +905,6 @@ def test_box_selection_without_plane_features(container_matrix = None):
                         )
     box_encoding = encoder(boxes)  
     
-    # box_encoding_old = torch.randn(1, 3, 32)
     
     bin_embedding = torch.randn(params.batch_size, seq_len, dim_model)
     
@@ -774,11 +914,117 @@ def test_box_selection_without_plane_features(container_matrix = None):
     
     assert out.shape == (1, env.box_num)                                                      # Shape: [batch_size, num_boxes]
 
-    print("test_spatial_positional_encoding passed.") 
+    print("test_box_selection_without_plane_features passed.") 
 
 
 
+'''
+    --- Testing the file agent.py ---
+'''
 
+
+def test_actor_init():
+    actor = Actor(
+        bin_size_x = 9,
+        bin_size_y = 9,
+        dim_model=params.dim_model,
+        binary_dim=params.binary_dim,
+        plane_feature_dim=params.plane_feature_dim
+    )
+
+    dummy_input = torch.randn(params.batch_size, 9*9, params.plane_feature_dim)
+    with torch.no_grad():
+        probs, actions = actor((dummy_input, dummy_input, dummy_input, torch.ones(1, 9, 9,dtype = torch.bool)))
+    assert isinstance(probs, tuple) and len(probs) == 3
+    assert isinstance(actions, tuple)
+
+
+def test_critic_init():
+    critic = Critic(
+        bin_size_x = 9,
+        bin_size_y = 9,
+        dim_model=params.dim_model,
+        binary_dim=params.binary_dim,
+        plane_feature_dim=params.plane_feature_dim
+    )
+
+    dummy_input = torch.randn(params.batch_size, 9*9, params.plane_feature_dim)
+    with torch.no_grad():
+        value = critic([dummy_input, dummy_input, dummy_input, torch.ones(1, 9, 9,dtype = torch.bool)])
+    assert isinstance(value, torch.Tensor)
+    assert value.shape[0] == 1
+
+
+def test_agent_init():
+    agent = Agent(
+        bin_size_x = 9,
+        bin_size_y = 9,
+        learning_rate_actor = params.learning_rate_actor,
+        learning_rate_critic = params.learning_rate_critic
+    )
+
+    assert isinstance(agent.actor, torch.nn.Module)
+    assert isinstance(agent.critic, torch.nn.Module)
+
+
+def test_get_reward_sum():
+    agent = Agent(
+        bin_size_x = 9,
+        bin_size_y = 9,
+        learning_rate_actor = params.learning_rate_actor,
+        learning_rate_critic = params.learning_rate_critic
+    )
+
+    buffer_len = 5
+    rewards = np.ones(buffer_len, dtype = np.float32)
+    masks = np.ones(buffer_len, dtype = np.float32) * params.discount_factor
+    values = np.zeros(buffer_len, dtype = np.float32)
+    
+    sum_rewards, advantages = agent.get_reward_sum(buffer_len, masks, rewards, values)
+    assert sum_rewards.shape[0] == buffer_len
+    assert advantages.shape[0] == buffer_len
+    assert isinstance(sum_rewards[0], np.float32)
+
+
+def test_optimiser_update():
+    model = torch.nn.Linear(5, 2)
+    optim = torch.optim.Adam(model.parameters(), lr = params.learning_rate_actor)
+    x = torch.randn(3, 5)
+    y = torch.randn(3, 2)
+    criterion = torch.nn.MSELoss()
+    loss = criterion(model(x), y)
+    
+    Agent.optimiser_update(optim, loss)
+
+
+def test_update_net_shapes():
+    agent = Agent(
+        bin_size_x = 9,
+        bin_size_y = 9,
+        learning_rate_actor = params.learning_rate_actor,
+        learning_rate_critic = params.learning_rate_critic
+    )
+    # Dummy buffer
+    batch_size = params.batch_size
+    buffer_len = 4
+    state_dim = (9*9, params.plane_feature_dim)
+    
+    dummy_state = np.random.randn(buffer_len, *state_dim).astype(np.float32)
+    dummy_action = np.random.randn(buffer_len, 3).astype(np.float32)
+    dummy_probs = np.random.rand(buffer_len, 3).astype(np.float32)
+    dummy_rewards = np.random.randn(buffer_len).astype(np.float32)
+    dummy_masks = np.random.rand(buffer_len).astype(np.float32)
+    
+    buffer = [np.stack([dummy_state]*3, axis = 1),
+              np.stack([dummy_action]*3, axis = 1),
+              np.stack([dummy_probs]*3, axis = 1),
+              dummy_rewards,
+              dummy_masks]
+    
+    loss_critic, loss_actor, logprob_mean = agent.update_net(buffer, batch_size = batch_size, repeat_times = 1)
+    assert isinstance(loss_critic, float)
+    assert isinstance(loss_actor, float)
+    assert isinstance(logprob_mean, float)
 
 
 
@@ -872,13 +1118,24 @@ if __name__ == "__main__":
     # test_position_selection()                                                                         # Works
     # test_position_selection(container_matrix)                                                         # Works
     
-    # test_box_selection()
+    # test_box_selection()                                                                              # Works
+    # test_box_selection(container_matrix)                                                              # Works
     
-    # test_rotation_selection()
+    # test_rotation_selection()                                                                         # Works
+    # test_rotation_selection(container_matrix)                                                         # Works
+    # test_rotation_selection(boxes = boxes, rotation_constraints = [[1], [0, 1]])                      # Works
+    # test_rotation_selection(container_matrix, boxes, [[1], [0, 1]])                                   # Works  
     
-    # test_actor()
+    # test_actor()                                                                                      # Works
+    # test_actor(container_matrix)                                                                      # Works
+    # test_actor(boxes = boxes, rotation_constraints = [[1], [0, 1]])
+    # test_actor(container_matrix, boxes, [[1], [0, 1]]) 
     
     test_critic()
+    # test_critic(container_matrix)
+    # test_critic(boxes = boxes, rotation_constraints = [[1], [0, 1]])
+    # test_critic(container_matrix, boxes, [[1], [0, 1]]) 
+
     
     # test_box_selection_without_plane_features()                                                       # Works
     # test_box_selection_without_plane_features(container_matrix)                                       # Works
@@ -887,4 +1144,14 @@ if __name__ == "__main__":
 
     ''' agent.py '''
     
-    #
+    # test_actor_init()
+
+    # test_critic_init()
+
+    # test_agent_init()
+
+    # test_get_reward_sum()
+
+    # test_optimiser_update()
+
+    # test_update_net_shapes()
