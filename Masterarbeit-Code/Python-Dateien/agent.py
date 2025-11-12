@@ -13,7 +13,6 @@ class Agent:
                  bin_size_y,
                  learning_rate_actor,                                                               # In the paper it is 1e-5
                  learning_rate_critic,                                                              # In the paper it is 1e-4
-                 use_gae = True,                                                                    # Can be removed adn also self.if_per_or_gae = True in params
                  load_model = None,                                                                 # Whether a pre-trained model shall be used. Useful for checkpoints
                  cwd = None,                                                                        # Current working directory. Where shall the models be saved?
                  gpu_id = 0,                                                                        # 0 --> first GPU, -1 --> CPU.
