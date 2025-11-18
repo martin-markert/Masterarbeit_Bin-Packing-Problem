@@ -79,7 +79,7 @@ class Agent:
                                         ):                                                          # Run several processes simultaneously to gain a lot of experience more quickly.
         process_num = len(action_queue_list)                                                        # How many processes are running?
         [action_queue_list[process_index].put(False) for process_index in range(process_num)]       # Sends a reset signal, i.e. a kind of synchronous start command, to each parallel environment process before the interaction begins.   
-        self.packing_score_average = 0
+        self.use_ratio_avg = 0
         episode_num = 0                                                                             # Counter for the number of completed episodes
         srdap_temp = [[] for _ in range(process_num)]                                               # A list that creates a temporary trajectory list for each parallel environment process.
                                                                                                     # srdap = (state, reward, done, action, probabilities)

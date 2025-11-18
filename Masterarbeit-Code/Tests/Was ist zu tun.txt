@@ -1,9 +1,9 @@
-| Reihenfolge | Datei                | Hauptaufgabe                                |  Fertig und getestet? |
-| ----------- | -------------------- | ------------------------------------------- |---------------------- |
-| 1           | environment.py       | Physikalische Umgebung & Zustände           |          Ja           |
-| 2           | network.py           | Transformer-Architektur (Encoder/Decoder)   |      Zu testen        |
-| 3           | agent.py             | PPO-Agent (Training & Policy)               |      Zu testen        |
-| 4           | agent_explore_env.py | Multi-Prozess-Erkundung                     |         Nein          |
-| 5           | train.py             | Haupt-Trainingslogik & Logging              |         Nein          |
-| 6           | test.py              | Evaluation                                  |         Nein          |
-| 7           | plot.py              | Visualisierung                              |         Nein          |
+| Reihenfolge | Datei                  | Hauptaufgabe                                |  Fertig und getestet? |
+| ----------- | ---------------------- | ------------------------------------------- |---------------------- |
+| 1           | environment.py         | Physikalische Umgebung & Zustände           |          Ja           |
+| 2           | network.py             | Transformer-Architektur (Encoder/Decoder)   |  Tests fertigstellen  |
+| 3           | agent.py               | PPO-Agent (Training & Policy)               |  Tests fertigstellen  |
+| 4           | explore_environment.py | Multi-Prozess-Erkundung                     |      Zu testen        |
+| 5           | train.py               | Haupt-Trainingslogik & Logging              |         Nein          |
+| 6           | test.py                | Evaluation                                  |         Nein          |
+| 7           | plot.py                | Visualisierung                              |         Nein          |

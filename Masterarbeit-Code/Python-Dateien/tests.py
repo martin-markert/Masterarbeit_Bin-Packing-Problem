@@ -3,10 +3,12 @@ import parameters as p
 from environment import *
 from network import *
 from agent import *
+from explore_environment import *
 
 import torch
 import torch.nn as nn
 import numpy as np
+import queue
 
 
 '''
@@ -871,6 +873,7 @@ def test_critic(container_matrix = None, boxes = None, rotation_constraints = No
                     dim_model = params.dim_model,
                     binary_dim = params.binary_dim,
                     plane_feature_dim = state[0].shape[-1]
+                    # plane_feature_dim = params.plane_feature_dim
                 )
     
     value = critic(state)
@@ -923,91 +926,51 @@ def test_box_selection_without_plane_features(container_matrix = None):
 '''
 
 
-def test_actor_init():
-    actor = Actor(
-        bin_size_x = 9,
-        bin_size_y = 9,
-        dim_model=params.dim_model,
-        binary_dim=params.binary_dim,
-        plane_feature_dim=params.plane_feature_dim
+def test_agent_init(container_matrix = None):
+    env = Environment(
+        bin_size_x    =  9,
+        bin_size_y    =  9,
+        bin_size_z    = 10,
+        bin_size_ds_x =  3,
+        bin_size_ds_y =  3,
+        box_num       =  2,
+        bin_height_if_not_start_with_all_zeros = container_matrix
     )
 
-    dummy_input = torch.randn(params.batch_size, 9*9, params.plane_feature_dim)
-    with torch.no_grad():
-        probs, actions = actor((dummy_input, dummy_input, dummy_input, torch.ones(1, 9, 9,dtype = torch.bool)))
-    assert isinstance(probs, tuple) and len(probs) == 3
-    assert isinstance(actions, tuple)
-
-
-def test_critic_init():
-    critic = Critic(
-        bin_size_x = 9,
-        bin_size_y = 9,
-        dim_model=params.dim_model,
-        binary_dim=params.binary_dim,
-        plane_feature_dim=params.plane_feature_dim
-    )
-
-    dummy_input = torch.randn(params.batch_size, 9*9, params.plane_feature_dim)
-    with torch.no_grad():
-        value = critic([dummy_input, dummy_input, dummy_input, torch.ones(1, 9, 9,dtype = torch.bool)])
-    assert isinstance(value, torch.Tensor)
-    assert value.shape[0] == 1
-
-
-def test_agent_init():
-    agent = Agent(
-        bin_size_x = 9,
-        bin_size_y = 9,
-        learning_rate_actor = params.learning_rate_actor,
-        learning_rate_critic = params.learning_rate_critic
-    )
+    agent = Agent(bin_size_x = env.bin_size_ds_x,
+                  bin_size_y = env.bin_size_ds_y,
+                  learning_rate_actor = params.learning_rate_actor,
+                  learning_rate_critic = params.learning_rate_critic
+                )
 
     assert isinstance(agent.actor, torch.nn.Module)
     assert isinstance(agent.critic, torch.nn.Module)
 
+    print("test_agent_init passed")
 
-def test_get_reward_sum():
-    agent = Agent(
-        bin_size_x = 9,
-        bin_size_y = 9,
-        learning_rate_actor = params.learning_rate_actor,
-        learning_rate_critic = params.learning_rate_critic
+
+def test_update_net(container_matrix = None):
+    env = Environment(
+        bin_size_x    =  9,
+        bin_size_y    =  9,
+        bin_size_z    = 10,
+        bin_size_ds_x =  3,
+        bin_size_ds_y =  3,
+        box_num       =  2,
+        bin_height_if_not_start_with_all_zeros = container_matrix
     )
 
-    buffer_len = 5
-    rewards = np.ones(buffer_len, dtype = np.float32)
-    masks = np.ones(buffer_len, dtype = np.float32) * params.discount_factor
-    values = np.zeros(buffer_len, dtype = np.float32)
-    
-    sum_rewards, advantages = agent.get_reward_sum(buffer_len, masks, rewards, values)
-    assert sum_rewards.shape[0] == buffer_len
-    assert advantages.shape[0] == buffer_len
-    assert isinstance(sum_rewards[0], np.float32)
-
-
-def test_optimiser_update():
-    model = torch.nn.Linear(5, 2)
-    optim = torch.optim.Adam(model.parameters(), lr = params.learning_rate_actor)
-    x = torch.randn(3, 5)
-    y = torch.randn(3, 2)
-    criterion = torch.nn.MSELoss()
-    loss = criterion(model(x), y)
-    
-    Agent.optimiser_update(optim, loss)
-
-
-def test_update_net_shapes():
-    agent = Agent(
-        bin_size_x = 9,
-        bin_size_y = 9,
-        learning_rate_actor = params.learning_rate_actor,
-        learning_rate_critic = params.learning_rate_critic
-    )
+    agent = Agent(bin_size_x = env.bin_size_ds_x,
+                  bin_size_y = env.bin_size_ds_y,
+                  learning_rate_actor = params.learning_rate_actor,
+                  learning_rate_critic = params.learning_rate_critic
+                )
     # Dummy buffer
-    batch_size = params.batch_size
     buffer_len = 4
     state_dim = (9*9, params.plane_feature_dim)
+
+    state = env.reset()
+    action = (0, 0, 0)
     
     dummy_state = np.random.randn(buffer_len, *state_dim).astype(np.float32)
     dummy_action = np.random.randn(buffer_len, 3).astype(np.float32)
@@ -1021,13 +984,154 @@ def test_update_net_shapes():
               dummy_rewards,
               dummy_masks]
     
-    loss_critic, loss_actor, logprob_mean = agent.update_net(buffer, batch_size = batch_size, repeat_times = 1)
+    loss_critic, loss_actor, logprob_mean = agent.update_net(buffer, batch_size = params.batch_size, repeat_times = 1)
     assert isinstance(loss_critic, float)
     assert isinstance(loss_actor, float)
     assert isinstance(logprob_mean, float)
 
 
+def test_get_reward_sum(container_matrix = None):
+    env = Environment(
+        bin_size_x    =  9,
+        bin_size_y    =  9,
+        bin_size_z    = 10,
+        bin_size_ds_x =  3,
+        bin_size_ds_y =  3,
+        box_num       =  2,
+        bin_height_if_not_start_with_all_zeros = container_matrix
+    )
+    
+    agent = Agent(
+        bin_size_x = env.bin_size_x,
+        bin_size_y = env.bin_size_y,
+        learning_rate_actor = params.learning_rate_actor,
+        learning_rate_critic = params.learning_rate_critic
+    )
 
+    buffer_len = 5
+    rewards = np.ones(buffer_len, dtype = np.float32)
+    masks = np.ones(buffer_len, dtype = np.float32) * params.discount_factor
+    values = np.zeros(buffer_len, dtype = np.float32)
+    
+    sum_rewards, advantages = agent.get_reward_sum(buffer_len, masks, rewards, values)
+
+    print(sum_rewards)
+    print(advantages)
+
+    assert sum_rewards.shape[0] == buffer_len
+    assert advantages.shape[0] == buffer_len
+    assert isinstance(sum_rewards[0], np.float32)
+
+    print("test_get_reward_sum passed")
+
+
+def test_optimiser_update(container_matrix = None):
+    env = Environment(
+        bin_size_x    =  9,
+        bin_size_y    =  9,
+        bin_size_z    = 10,
+        bin_size_ds_x =  3,
+        bin_size_ds_y =  3,
+        box_num       =  2,
+        bin_height_if_not_start_with_all_zeros = container_matrix
+    )
+
+    actor = Actor(bin_size_x = env.bin_size_ds_x,
+                  bin_size_y = env.bin_size_ds_y,
+                  dim_model = params.dim_model,
+                  binary_dim = params.binary_dim,
+                  plane_feature_dim = params.plane_feature_dim
+                )
+    
+    critic = Critic(bin_size_x = env.bin_size_ds_x,
+                    bin_size_y = env.bin_size_ds_y,
+                    dim_model = params.dim_model,
+                    binary_dim = params.binary_dim,
+                    plane_feature_dim = params.plane_feature_dim
+                )
+    
+    model = torch.nn.Linear(5, 2)
+    actor_optimiser = torch.optim.Adam(actor.parameters(), params.learning_rate_actor)
+    critic_optimiser = torch.optim.Adam(critic.parameters(), params.learning_rate_actor)
+    x = torch.randn(3, 5)
+    y = torch.randn(3, 2)
+    criterion = torch.nn.MSELoss()
+    loss = criterion(model(x), y)
+    
+    # Agent.optimiser_update(actor_optimiser, loss)                                         # Only one of both work at the same time
+    Agent.optimiser_update(critic_optimiser, loss)
+
+    print("test_optimiser_update passed")
+
+
+
+'''
+    --- Testing the file explore_environment.py ---
+'''
+
+def test_explore_environment():
+    action_queue = queue.Queue()
+    result_queue = queue.Queue()
+
+    action_queue.put(False)        # Reset signal                                           #  TODO: Use real values
+    result_queue.put([0, 0, 0])    # First "action" (Dummy)                                 #  TODO: Use real values
+
+    explore_environment(action_queue,
+                        result_queue,
+                        bin_size_x           =  9,
+                        bin_size_y           =  9,
+                        bin_size_z           = 10,
+                        bin_size_ds_x        =  3,
+                        bin_size_ds_y        =  3,
+                        box_num              =  2,
+                        min_factor           =  0.1,
+                        max_factor           =  0.5,
+                        rotation_constraints = None,
+                        number_of_iterations = 10
+                    )
+    
+    state, reward, done, use_ratio = result_queue.get()
+    
+    print(f"Entries in state: {len(state)}")
+    print("Reward:", reward)
+    print("Done:", done)
+    print("Use ratio:", use_ratio)
+
+
+def test_solve_problem():
+    action_queue = queue.Queue()
+    result_queue = queue.Queue()
+
+    action_queue.put(False)        # Reset signal                                           #  TODO: Use real values
+    result_queue.put([0, 0, 0])    # First "action" (Dummy)                                 #  TODO: Use real values
+
+    env = Environment(
+        bin_size_x           =  9,
+        bin_size_y           =  9,
+        bin_size_z           = 10,
+        bin_size_ds_x        = 3,
+        bin_size_ds_y        = 3,
+        box_num              = 2,
+        min_factor           = 0.1,
+        max_factor           = 0.5,
+        rotation_constraints = None
+    )
+
+    # Two part instances
+    box_list = [
+        boxes,
+        boxes,
+    ]
+
+    solve_problem(action_queue, result_queue, box_list, env)
+
+    next_state, reward, done, use_ratio, packing_result = result_queue.get()
+
+    print(f"Entries is state: {len(next_state)}")
+    print("Reward:", reward)
+    print("Done:", done)
+    print("Use ration:", use_ratio)
+    print("Packing result:", packing_result)
 
 
 
@@ -1131,7 +1235,7 @@ if __name__ == "__main__":
     # test_actor(boxes = boxes, rotation_constraints = [[1], [0, 1]])
     # test_actor(container_matrix, boxes, [[1], [0, 1]]) 
     
-    test_critic()
+    # test_critic()
     # test_critic(container_matrix)
     # test_critic(boxes = boxes, rotation_constraints = [[1], [0, 1]])
     # test_critic(container_matrix, boxes, [[1], [0, 1]]) 
@@ -1144,14 +1248,23 @@ if __name__ == "__main__":
 
     ''' agent.py '''
     
-    # test_actor_init()
+    # test_agent_init()                                                                                 # Works
+    # test_agent_init(container_matrix)                                                                 # Works
 
-    # test_critic_init()
+    # TODO test_explore_environment_multiprocessing()
 
-    # test_agent_init()
+    # test_update_net()
 
-    # test_get_reward_sum()
+    # test_get_reward_sum()                                                                             # Works. TODO: Test with real inputs, not dummy ones
+    # test_get_reward_sum(container_matrix)                                                             # Works. TODO: Test with real inputs, not dummy ones
 
-    # test_optimiser_update()
+    # test_optimiser_update()                                                                           # Works
+    # test_optimiser_update(container_matrix)                                                           # Works
 
-    # test_update_net_shapes()
+
+
+    ''' explore_environment.py '''
+
+    # test_explore_environment()                                                                        # TODO: Test with real inputs, not dummy ones
+
+    # test_solve_problem()                                                                              #TODO: Test with real inputs, not dummy ones
