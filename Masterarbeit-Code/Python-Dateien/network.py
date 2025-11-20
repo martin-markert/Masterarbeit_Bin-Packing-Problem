@@ -84,51 +84,51 @@ class Box_Encoder(nn.Module):
 
 
 class Spatial_Positional_Encoding(nn.Module):                                                                   # Calculates the positional encodings for the ontainer encoder (see Figure 3b)
-        def __init__(self,
-                     dim_model,
-                     bin_size_x,
-                     bin_size_y
-                    ):
-            super().__init__()
+    def __init__(self,
+                 dim_model,
+                 bin_size_x,
+                 bin_size_y
+                ):
+        super().__init__()
 
-            if dim_model < 4 or dim_model % 4 != 0:
-                raise ValueError(f"dim_model must be >= 4 and divisible by 4, got {dim_model}")                 # Later “pos_features = dim_model // 2” is called: pos_features needs to be divisible by 2, so pos[:, :, :, 0::2] and pos[:, :, :, 1::2] have the same avount of values
+        if dim_model < 4 or dim_model % 4 != 0:
+            raise ValueError(f"dim_model must be >= 4 and divisible by 4, got {dim_model}")                     # Later “pos_features = dim_model // 2” is called: pos_features needs to be divisible by 2, so pos[:, :, :, 0::2] and pos[:, :, :, 1::2] have the same avount of values
 
-            dummy_tensor = torch.ones((1, bin_size_x, bin_size_y))                                              # Dummy tensor with all ones, e.g., dummy_tensor = [[1, 1, 1],   
+        dummy_tensor = torch.ones((1, bin_size_x, bin_size_y))                                                  # Dummy tensor with all ones, e.g., dummy_tensor = [[1, 1, 1],   
                                                                                                                                                                   # [1, 1, 1],
                                                                                                                                                                   # [1, 1, 1]]
 
-            x_embed = dummy_tensor.cumsum(2, dtype=torch.float32)                                               # Calculates cumulative indices for each column (x_embed) and row (y_embed) --> position values.
+        x_embed = dummy_tensor.cumsum(2, dtype = torch.float32)                                                 # Calculates cumulative indices for each column (x_embed) and row (y_embed) --> position values.
                                                                                                                 # x_embed = [[1, 2, 3],                                                                                                                            
                                                                                                                            # [1, 2, 3],
                                                                                                                            # [1, 2, 3]]
 
-            y_embed = dummy_tensor.cumsum(1, dtype=torch.float32)                                               # y_embed = [[1, 1, 1]                                                                                                                                                                                                                       # x_embed[0] = [[1, 2, 3],                                                                                                                            
+        y_embed = dummy_tensor.cumsum(1, dtype = torch.float32)                                                 # y_embed = [[1, 1, 1]                                                                                                                                                                                                                       # x_embed[0] = [[1, 2, 3],                                                                                                                            
                                                                                                                            # [2, 2, 2],
                                                                                                                            # [3, 3, 3]]
-            
-            pos_features = dim_model // 2                                                                       # Fixed positional encodings are used as in Parmar et al., 2018:
+        
+        pos_features = dim_model // 2                                                                           # Fixed positional encodings are used as in Parmar et al., 2018:
                                                                                                                 # Since two coordinates need to be represented, d/2 of the dimensions is used to encode the row number and the other d/2 of the dimensions to encode the the column number
-            
-            dimension_tensor = torch.arange(pos_features, dtype = torch.float32)                                # Creates a 1D tensor [0, 1, 2, …, pos_features-1] as frequency scale for sine/cosine positional encoding from Vaswani et al., 2017
+        
+        dimension_tensor = torch.arange(pos_features, dtype = torch.float32)                                    # Creates a 1D tensor [0, 1, 2, …, pos_features-1] as frequency scale for sine/cosine positional encoding from Vaswani et al., 2017
                                                                                                                 # dimension_tensor is the divisor/frequencies for the sine/cosine functions (as in Vaswani et al., 2017).
-            dimension_tensor = 10000 ** (2 * (torch.div(dimension_tensor, 2, rounding_mode='trunc') / pos_features))    # <-- See chapter 3.5 in Vaswani et al., 2017
-            pos_x = x_embed[:, :, :, None] / dimension_tensor                                                   # Adds a new dimension to enable broadcasting across embedding dimensions, and divides positional indices by dimension_tensor to apply frequency scaling. This prepares the values for multi-frequency Sin/Cos positional encoding.
-            pos_y = y_embed[:, :, :, None] / dimension_tensor
-            pos_x = torch.stack((pos_x[:, :, :, 0::2].sin(), pos_x[:, :, :, 1::2].cos()), dim = 4).flatten(3)   # Indices [0, 2, 4, ...] --> as in Vaswani et al., 2017
-            pos_y = torch.stack((pos_y[:, :, :, 0::2].sin(), pos_y[:, :, :, 1::2].cos()), dim = 4).flatten(3)   # Indices [1, 3, 5, ...]
+        dimension_tensor = 10000 ** (2 * (torch.div(dimension_tensor, 2, rounding_mode='trunc') / pos_features))    # <-- See chapter 3.5 in Vaswani et al., 2017
+        pos_x = x_embed[:, :, :, None] / dimension_tensor                                                       # Adds a new dimension to enable broadcasting across embedding dimensions, and divides positional indices by dimension_tensor to apply frequency scaling. This prepares the values for multi-frequency Sin/Cos positional encoding.
+        pos_y = y_embed[:, :, :, None] / dimension_tensor
+        pos_x = torch.stack((pos_x[:, :, :, 0::2].sin(), pos_x[:, :, :, 1::2].cos()), dim = 4).flatten(3)       # Indices [0, 2, 4, ...] --> as in Vaswani et al., 2017
+        pos_y = torch.stack((pos_y[:, :, :, 0::2].sin(), pos_y[:, :, :, 1::2].cos()), dim = 4).flatten(3)       # Indices [1, 3, 5, ...]
                                                                                                                 # torch.stack((…)) --> combines Sin and Cos results in a new dimension
                                                                                                                 # dim = 4 --> additional dimension for pairing
                                                                                                                 # flatten(3) --> combines Sin/Cos back into one dimension per position encoding
                                                                                                                 # Result: Tensor (1, bin_x, bin_y, pos_feature) --> each position has unique encoding dimensions combined with Sin/Cos
-            
-            pos = torch.cat((pos_y, pos_x), dim = 3).flatten(1, 2)                                              # Combined y- and x-encodings --> dim_model dimensional per position.
+        
+        pos = torch.cat((pos_y, pos_x), dim = 3).flatten(1, 2)                                                  # Combined y- and x-encodings --> dim_model dimensional per position.
                                                                                                                 # Flatten: Sequence for transformer
                                                                                                                 # Example: (1, 3, 3, 8) --> (1, 3*3, 8) --> (1, 9, 8)
-            self.register_buffer('pos', pos)                                                                    # As the positional encodings are fixed (not learnable), they need to be saved as a fixed tensor. They are the same during the entire training
-        
-        def forward(self, input_embeddings):
-            return input_embeddings + self.pos                                                                  # Add the corresponding position vector to each input embedding
+        self.register_buffer('pos', pos)                                                                        # As the positional encodings are fixed (not learnable), they need to be saved as a fixed tensor. They are the same during the entire training
+    
+    def forward(self, bin_embedding):
+        return bin_embedding + self.pos                                                                         # Add the corresponding position vector to each input embedding
 
 
 
@@ -150,6 +150,7 @@ class Bin_Encoder(nn.Module):                                                   
 
     def forward(self, bin_state):
         bin_embedding = convert_decimal_tensor_to_binary(bin_state, self.binary_dim)
+        # bin_embedding = bin_embedding.view(-1, bin_embedding.shape[-1]).unsqueeze(0)                            # To get the dimensions/shapes right TODO: Has beed added white testing. Is this working in productive usage?
         bin_embedding = self.embedding(bin_embedding)
         bin_embedding = self.positional_encoding_of_bin(bin_embedding)
         bin_encoding = self.transformer(bin_embedding)
@@ -193,7 +194,7 @@ class Transformer_Decoder(nn.Module):
     def __init__(self,        
                  dim_model = params.dim_model,
                  num_heads = params.transformer_decoder_num_head,                                               # Amount of attention heads
-                 dim_hidden_1 = params.transformer_decoder_dim_hidden_1,                                            # Hidden layers/feed-forward layers
+                 dim_hidden_1 = params.transformer_decoder_dim_hidden_1,                                        # Hidden layers/feed-forward layers
                  dropout = params.transformer_decoder_dropout,
                  num_layers = params.transformer_decoder_num_layers                                             # Amount of decoder layers (see “Nx” in Figure 1 in Vaswani et al., 2017)
                 ):
@@ -380,7 +381,7 @@ class Actor(nn.Module):
                                                                                                                 # Theoretically one might have multiple environment processes --> multiple trajectories simultaneously
                                                                                                                 # Then bin_state contains multiple batch elements.
         box_mask = box_state[:, :, 0] < 0                                                                       # Placed boxes have constant_values = -1e9 (see step() in environment.py)
-        rotation_mask = rotation_constraints[:, :, 0] < 0                                                       # TODO: Currently unused
+        # rotation_mask = rotation_constraints[:, :, 0] < 0                                                     # TODO: Currently unused
         box_encoder = self.box_encoder(box_state, box_mask)
         bin_state_flat = bin_state.flatten(1, 2)
         bin_encoder = self.bin_encoder(bin_state_flat)
@@ -388,7 +389,7 @@ class Actor(nn.Module):
         ''' --- Position --- '''
         position_logits = self.position_action(bin_encoder, box_encoder)                                        # Returns the raw values for softmax for positions
         box_rotation_shape_all = generate_box_rotations_torch(box_state,                                        # Shape should be (batch_size, -1, 6, 3)
-                                                              rotation_indices = rotation_constraints)          # Why torch and not np.array?
+                                                              rotation_constraints = rotation_constraints)      # Why torch and not np.array?
                                                                                                                 # One cannot apply Torch operations to it. If one wants to use it in the Actor-forward() function, one has to copy tensors to the GPU (torch.from_numpy(...)) --> unnecessarily slower.
         position_mask = packing_mask.all(1).all(1)                                                              # packing_mask contains True for non-packable positions (see ~packing_available in environment.py).
                                                                                                                 # This mask array is later used for softmax masking of the positions:
@@ -450,7 +451,28 @@ class Actor(nn.Module):
 
     def get_action_and_probabilities(self, state):                                                              # state = (plane_features, boxes, rotation_constraints, packing_mask) as in file environment.py
         probabilities_of_actions, action = self.forward(state)                                                  # Simply calls forward() and returns the stuff in reverse order
+        
         return action, probabilities_of_actions                                                                 # TODO: Needed?
+    
+
+    def get_old_logprob(self, action, probabilities):
+        irxy_distribution = [torch.distributions.Categorical(prob) for prob in probabilities]                   # irxy stands for index, rotation x/y coordinate
+                                                                                                                # A categorical distribution is generated for each sub-action (select box, select position, select rotation). torch.distributions.Categorical(prob) --> generates a distribution object that can be used to calculate log probability.
+        log_prob_irxy = [irxy_distribution[i].log_prob(action[i]) for i in range(len(irxy_distribution))]       # Log probability of the selected action under the old policy.
+        log_prob = sum(log_prob_irxy)                                                                           # Since each action consists of 3 sub-actions, the log probability is added to obtain the joint probability of the combined action.
+        
+        return log_prob
+    
+
+    def get_logprob_entropy(self, state, action):
+        irxy_probabilities, _ = self.forward(state, action_old = action)
+        irxy_distribution = [torch.distributions.Categorical(prob) for prob in irxy_probabilities]
+        log_prob_irxy = [irxy_distribution[i].log_prob(action[i]) for i in range(len(irxy_distribution))]
+        log_prob = sum(log_prob_irxy)
+        irxy_entropy = [dist.entropy().mean() for dist in irxy_distribution]
+        entropy = sum(entropy)
+        
+        return log_prob, entropy
                                                                                                               
 
 class Critic(nn.Module):
@@ -606,17 +628,22 @@ def generate_box_rotations_torch(boxes, rotation_constraints = None):           
         [1, 2, 0],  # 3: (y, z, x) --> Box tipped forward/backward and then rotated 90°         #  \
         [0, 2, 1],  # 4: (x, z, y) --> Box tipped to the left or right                          #   \
         [2, 0, 1]   # 5: (z, x, y) --> Box tipped to the left or right and then rotated 90°     #    _|
-    ], device = device)                                                                         #      x
+    ], device = device, dtype = torch.long)                                                     #      x
                                                                                                 #
                                                                                                 #       ^
                                                                                                 #       |
                                                                                                 #     Viewer
+    if isinstance(rotation_constraints, torch.Tensor):
+        rotation_constraints = rotation_constraints.long().tolist()
+
+
     # Case 1: All rotations are allowed
-    if rotation_constraints is None:
+    # if rotation_constraints is None or rotation_constraints == [[0, 1, 2, 3, 4, 5], [0, 1, 2, 3, 4, 5]]:
+    if rotation_constraints == [[0, 1, 2, 3, 4, 5], [0, 1, 2, 3, 4, 5]]:
         allowed_rot = base_rotations
         num_rot = 6
 
-    elif isinstance(rotation_constraints[0], list):
+    elif isinstance(rotation_constraints[0], list) or isinstance(rotation_constraints, torch.Tensor):
         # Case 2: Same rotation for all boxes
         if len(rotation_constraints) == 1:
             r_tensor = base_rotations[rotation_constraints[0]]
@@ -629,20 +656,20 @@ def generate_box_rotations_torch(boxes, rotation_constraints = None):           
             for r in rotation_constraints:
                 r_tensor = base_rotations[r]
                 if len(r) < max_rot:
-                    pad = torch.zeros((max_rot - len(r), 3), device=device, dtype=torch.long)                   # Padding to [0, 0, 0], to keep the shape the same, so that torch is happy. I am not happy with that, yet
-                    r_tensor = torch.cat([r_tensor, pad], dim=0)
+                    pad = torch.zeros((max_rot - len(r), 3), device = device, dtype = torch.long)            # Padding to [0, 0, 0], to keep the shape the same, so that torch is happy. I am not happy with that, yet
+                    r_tensor = torch.cat([r_tensor, pad], dim = 0)
                 allowed_rot_list.append(r_tensor)
-            allowed_rot = torch.stack(allowed_rot_list, dim=0)
+            allowed_rot = torch.stack(allowed_rot_list, dim = 0)
             num_rot = allowed_rot.shape[1]
 
     else:
         raise ValueError(
-                f"rotation_constraints must be None, list[int] --> [x, y, z] <--, or list[list[int]] --> [[v, w], [x, y, z]] <--. "
+                f"rotation_constraints must be None, list[float] --> [x, y, z] <--, or list[list[float]] --> [[v, w], [x, y, z]] <--. "
                 f"Got {rotation_constraints}"
             )
 
     # Expand for Batch
-    boxes_expand = boxes.unsqueeze(2).expand(-1, -1, num_rot, -1)
+    boxes_expand = boxes.unsqueeze(2).expand(-1, -1, num_rot, -1).float()
     if allowed_rot.dim() == 2:
         allowed_rot_expand = allowed_rot.unsqueeze(0).unsqueeze(0).expand(batch_size, box_num, -1, -1)
     else:
