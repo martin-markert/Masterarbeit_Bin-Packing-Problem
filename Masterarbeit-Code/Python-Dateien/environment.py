@@ -4,9 +4,19 @@ import copy
 
 import warnings
 
-class Environment:
-    def __init__(self, bin_size_x, bin_size_y, bin_size_z, bin_size_ds_x, bin_size_ds_y, box_num, min_factor = 0.1, max_factor = 0.5, rotation_constraints = None, bin_height_if_not_start_with_all_zeros = None): # See chapter 4.1
-    # Shall later be:  100,        100,        ^__ useless for now, 10,   10,            ^__ whatever your heart desires                                           ^__ for debugging only, remove later
+class Environment:                                              # See chapter 4.1
+    def __init__(self,
+                 bin_size_x,                                    # 100 in the paper
+                 bin_size_y,                                    # 100 in the paper
+                 bin_size_z,                                    # Now set to high number. Later for multi-bin use it will be smaller
+                 bin_size_ds_x,                                 # 10 in the paper
+                 bin_size_ds_y,                                 # 10 in the paper
+                 box_num,                                       # Whatever your heart desires
+                 min_factor = 0.1,                              # Chosen by the authors
+                 max_factor = 0.5,                              # Chosen by the authors
+                 rotation_constraints = None,
+                 bin_height_if_not_start_with_all_zeros = None  # For debugging only, remove later
+                ):
         
         if (bin_size_x < 1 or bin_size_y < 1 or bin_size_z < 1 or bin_size_ds_x < 1 or bin_size_ds_y < 1):
             raise ValueError(
@@ -52,7 +62,10 @@ class Environment:
 
     # Environment constraints   
         # self.original_bin_heights = np.zeros((self.bin_size_x, self.bin_size_y))                                  # Creates the empty 2D Matrix of the bin with all heights = 0
-        self.original_bin_heights = bin_height_if_not_start_with_all_zeros                                          # TODO: This line is for debugging. Remove later and replace by line above
+        if bin_height_if_not_start_with_all_zeros is None:
+            bin_height_if_not_start_with_all_zeros = np.zeros((self.bin_size_x, self.bin_size_y))
+        self.original_bin_heights = bin_height_if_not_start_with_all_zeros                                          # TODO: This line is for debugging. Remove those 3 lines later and replace by line above
+        
         self.original_plane_features = self.get_bin_features(self.original_bin_heights)                             # Calculates the plane-feature matrix
         self.block_size_x = self.bin_size_x // self.bin_size_ds_x                                                   # Size of one downsampling block (cells per block in the x direction) --> Technically “//” is not needed as for the downsampling only divisions with no remainder are allowed
         self.block_size_y = self.bin_size_y // self.bin_size_ds_y                                                   # Size of one downsampling block (cells per block in the y direction)
@@ -60,10 +73,10 @@ class Environment:
 
         if self.bin_size_ds_x > self.bin_size_x or self.bin_size_ds_y > self.bin_size_y:                            # Do the downsampling only, if the end sizes ar snaller than the original ones
             raise ValueError(
-                f"Downsampling sizes must be smaller or equal to the original sizes "
-                f"({bin_size_x}, {bin_size_y}). You entered "
-                f"({bin_size_ds_x}, {bin_size_ds_y})."
-            )
+                    f"Downsampling sizes must be smaller or equal to the original sizes "
+                    f"({bin_size_x}, {bin_size_y}). You entered "
+                    f"({bin_size_ds_x}, {bin_size_ds_y})."
+                )
         elif self.downsampling_is_needed:
             self.original_downsampled_plane_features, self.original_max_incides = self.downsampling(self.original_plane_features)
 
@@ -149,7 +162,9 @@ class Environment:
         elif len(rotation_constraints) == 1:                                                                                    # Same rotation constraint for all boxes
                 rotation_constraints = rotation_constraints * box_num
         elif len(rotation_constraints) != box_num:                                                                              # Individial rotation constraints
-                raise ValueError(f"Length of rotation_constraints ({len(rotation_constraints)}) must match box_num ({box_num}).")
+                raise ValueError(
+                        f"Length of rotation_constraints ({len(rotation_constraints)}) must match box_num ({box_num})."
+                    )
       
         # boxes_with_rotation_constraints = np.array([[*boxes[i], rotation_constraints[i]] for i in range(box_num)], dtype = object)    # <-- PyTorch does not really like objects, so it is rturned separately
         
@@ -169,11 +184,11 @@ class Environment:
         '''
         if (plane_features.shape[0] % self.bin_size_ds_x != 0) or (plane_features.shape[1] % self.bin_size_ds_y != 0):          # Only divisions without remainder are possible
             raise ValueError(
-                f"Downsampling not possible: "
-                f"original_bin_size_x = {plane_features.shape[0]} / downsampled_bin_size_x = {self.bin_size_ds_x} "
-                f"and/or original_bin_size_y = {plane_features.shape[1]} / downsampled_bin_size_y = {self.bin_size_ds_y} "
-                f"are/is not divisible without a remainder."
-            )                                                                                                                 
+                    f"Downsampling not possible: "
+                    f"original_bin_size_x = {plane_features.shape[0]} / downsampled_bin_size_x = {self.bin_size_ds_x} "
+                    f"and/or original_bin_size_y = {plane_features.shape[1]} / downsampled_bin_size_y = {self.bin_size_ds_y} "
+                    f"are/is not divisible without a remainder."
+                )                                                                                                                 
         feature_num = plane_features.shape[2]                                                                                   # Downsamples as described in chapter 3.1.3, Container encoder.
         plane_features_split_x = np.stack(np.split(plane_features, self.bin_size_ds_x, 0), 0)                                   # Splits the original bin size along the x-axis
         plane_features_split_xy = np.stack(np.split(plane_features_split_x, self.bin_size_ds_y, 2), 1)                          # Splits the original bin size along the y-axis
@@ -203,9 +218,9 @@ class Environment:
                     )  
             else:
                 raise ValueError(
-                    f"You passed no boxes but their rotation constraints. "
-                    f"Are you sure you wanted this?"
-                )
+                        f"You passed no boxes but their rotation constraints. "
+                        f"Are you sure you wanted this?"
+                    )
         else:
             if rotation_constraints is None:                                                        # If there are boxes but no rotation_constraints were passed
                 _, rotation_constraints = self.generate_boxes(                                      # Then allow all rotations
@@ -310,8 +325,14 @@ class Environment:
         Then the reward is calculated as in chapter 3.2.1
         Then there is a final check, wheter everything is done or another step will be needed
         '''
+        # action = (0, 0, 0)                  # <-- TODO Remove after testing. Just remove it. Don't think about it
         if not isinstance(action, tuple) or len(action) != 3:
-            raise ValueError(f"action must be a tuple with exactly 3 values, not: {action}, which has {len(action)} values.")
+            raise ValueError(
+                    f"action must be a tuple with exactly 3 values, "
+                    f"but got type {type(action).__name__} with value {action}, "
+                    f"which has {len(action) if hasattr(action, '__len__') else 'N/A'} values."
+                )
+
         
         for i, v in enumerate(action):
             # if isinstance(v, (list, tuple, set, dict)):
@@ -325,9 +346,10 @@ class Environment:
                                                                                             # So “position” cannot be the absolute coordinates, as the transformer does not know the non-downsampled container size. So “position” must be an index. The index is the downsampling_block, where the box shall be placed.
                                                                                             # With self.max_indices[position] one gets the index of the best placment position of that selected downsampling_block
             if val_array.size != 1:
-                raise ValueError(f"Expected exactly one element, got "
-                                 f"{val_array} with size {val_array.size}"
-                            )  
+                raise ValueError(
+                        f"Expected exactly one element, got "
+                        f"{val_array} with size {val_array.size}"
+                    )  
                                  
             box_placement_position_in_downsampling_block = int(val_array.item())            # With that information together with self.block_size_x and self.block_size_y and self.bin_size_ds_x and self.bin_size_ds_y one can reconstruct the absolute position inside the non-downsampled bin.
             
@@ -452,118 +474,3 @@ def contains_empty_list(lst):
     if lst == []:
         return True
     return any(contains_empty_list(i) for i in lst)
-
-
-
-# '''
-#     --- Testing the stuff ---
-# '''
-# def test_env_with_matrix(container_matrix):
-#     bin_size_x, bin_size_y = container_matrix.shape
-#     bin_size_z = np.max(container_matrix) + 1
-#     env = Environment(
-#         bin_size_x = bin_size_x,
-#         bin_size_y = bin_size_y,
-#         bin_size_z = bin_size_z,
-#         bin_size_ds_x = 3,
-#         bin_size_ds_y = 3,
-#         box_num = 2,
-#         # min_factor = 0.1,
-#         # max_factor = 0.5,
-#         rotation_constraints = [[1], []],                                # Or Use [[1,2,3]] or [[1], [2, 4]]. TODO: [[]] or [[], []] has not been tested, yet
-#         bin_height_if_not_start_with_all_zeros = container_matrix   # for debugging only, in real life one starts with an empty box
-#     )
-
-#     bin_features = env.get_bin_features(container_matrix)
-
-
-#     # print("\n=== Original bin features ===")
-#     # print(bin_features)
-   
-
-#     # Ausgabe formatieren:
-#     print("\n=== Original bin features ===")
-#     for x in range(bin_size_x):
-#         row = " ".join(
-#             f"{tuple(int(f) for f in bin_features[x, y, :])}" 
-#             for y in range(bin_size_y)
-#         )
-#         print(row)
-    
-
-    
-    
-#     bin_state_ds, indices_of_largest_values = env.downsampling(bin_features)
-
-#     print("\n=== Downsampled bin_state ===")
-#     print(bin_state_ds)
-
-#     print("\n=== Max indices ===")
-#     print(indices_of_largest_values)
-
-
-#     print("\n=== Downsampled Bin State (bin_state_ds) ===")
-#     for x in range(bin_state_ds.shape[0]):
-#         row = " ".join(
-#             f"{tuple(int(f) for f in bin_state_ds[x, y, :])}"
-#             for y in range(bin_state_ds.shape[1])
-#         )
-#         print(row)
-
-#     print("\n=== Max indices ===")
-#     print(indices_of_largest_values.reshape(bin_state_ds.shape[0], bin_state_ds.shape[1]))
-
-
-
-#     boxes, rotation_constraints = env.generate_boxes(env.bin_size_x, env.bin_size_x, env.min_factor, env.max_factor, env.box_num, env.rotation_constraints)
-    
-#     print("\n=== Box array ===")
-#     print(boxes)
-
-
-
-#     mask = env.get_packing_mask(boxes, rotation_constraints, indices_of_largest_values)
-    
-#     print("\n=== Mask ===")
-#     print(mask)   
-
-
-
-#     reset_plane_features, reset_boxes, reset_rotation_constraints, reset_packing_mask = env.reset(boxes)
-#     print("\n=== Reset ===")
-#     print("\nReset Plane features:")
-#     for plane in reset_plane_features:
-#         row_strings = []
-#         for cell in plane:
-#             row_strings.append(f"({', '.join(str(int(x)) for x in cell)})")
-#         print(" ".join(row_strings))
-
-#     print(f"\n\nReset boxes:\n{reset_boxes} \n\nReset rotation constraints:\n{reset_rotation_constraints} \n\nReset packing mask:\n{reset_packing_mask}")
-
-
-#     for _ in range(env.box_num):
-#         dummy_action = (0, 0, 0)
-
-#         state, reward, done = env.step(dummy_action)
-#         print("\n=== Step ===")
-#         print("State:", state)
-#         print("Reward:", reward)
-#         print("Done:", done)
-
-
-
-# container_matrix = np.array([   # Add a check, whether height values are integers?
-#     [5,5,5,5,4,4,4,4,4],
-#     [5,5,5,5,4,4,4,4,4],
-#     [5,5,5,5,4,4,4,4,4],
-#     [2,2,2,2,2,2,0,3,3],
-#     [2,2,2,2,2,2,0,3,3],
-#     [2,2,2,2,2,2,0,3,3],
-#     [2,2,2,2,2,2,0,3,3],
-#     [2,2,2,2,2,2,0,3,3],
-#     [0,0,0,0,0,0,0,3,3]
-# ], dtype = int)
-
-
-# test_env_with_matrix(container_matrix)
-
