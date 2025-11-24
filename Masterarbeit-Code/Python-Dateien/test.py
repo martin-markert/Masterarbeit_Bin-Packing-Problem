@@ -1,36 +1,67 @@
-
+from parameters import Parameters
+from environment import Environment
+from explore_environment import solve_problem
+from network import Actor
 
 import numpy as np
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 import random
+import torch
+import time
 
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-from mpl_toolkits.mplot3d import Axes3D
+import multiprocessing as mp
+from multiprocessing import Queue
 
-def plotBox(x, y, z, dx, dy, dz, axis, colour = None):
-    verts = [(x, y, z), (x, y + dy, z), (x + dx, y + dy, z), (x + dx, y, z),                                    # Coordinates of the 8 corners of the cuboid
-             (x, y, z + dz), (x, y + dy, z + dz), (x + dx, y + dy, z + dz), (x + dx, y, z + dz)]
-    
-    faces = [[0, 1, 2, 3], [4, 5, 6, 7], [0, 1, 5, 4],                                                          # Defines the 6 faces of the cuboid
-             [1, 2, 6, 5], [2, 3, 7, 6], [0, 3, 7, 4]]
-    
-    poly3d = [[verts[vert_id] for vert_id in face] for face in faces]                                           # Lists the areas as polygons for matplotlib
-    
-    x, y, z = zip(*verts)
-    
-    axis.add_collection3d(Poly3DCollection(poly3d, facecolors = colour, linewidths = 1, edgecolors = 'black'))  # Adds the polygon to the 3D axis object
+params = Parameters()
+
+def cube_trace(x, y, z, length, width, height, scale, colour):
+    line = go.Scatter3d(
+        x = [x, x + length, x + length, x,         x, x,          x + length, x + length, x,          x,          x + length, x + length, x + length, x + length, x,          x        ],
+        y = [y, y,          y + width,  y + width, y, y,          y,          y + width,  y + width,  y,          y,          y,          y + width,  y + width,  y + width,  y + width],
+        z = [z, z,          z,          z,         z, z + height, z + height, z + height, z + height, z + height, z + height, z,          z,          z + height, z + height, z        ],
+
+        marker = dict(size = 1),
+        line = dict(color = 'black', width = 3)
+    )
+
+    x      +=     scale                                                                                         # Small inward shift by scale so that the edges remain visible without overlapping the mesh Reduces the dimensions accordingly (dx -= 2*scale, etc.) Purpose: Edges are not covered by the mesh surface, resulting in a cleaner visual appearance
+    y      +=     scale
+    z      +=     scale
+    length -= 2 * scale
+    width  -= 2 * scale
+    height -= 2 * scale
+
+    colour_limit = 100
+
+    colour = 'rgb(%s,%s,%s)' % (255 - colour[0] * colour_limit, 255 - colour[1] * colour_limit, 255 - colour[2] * colour_limit)
+    surface = go.Mesh3d(
+        # 8 vertices of a cube
+        x = [x, x, x + length, x + length, x, x, x + length, x + length],
+        y = [y, y + width, y + width, y, y, y + width, y + width, y],
+        z = [z, z, z, z, z + height, z + height, z + height, z + height],
+
+        i = [7, 0, 0, 0, 4, 4, 6, 6, 4, 0, 3, 2],
+        j = [3, 4, 1, 2, 5, 6, 5, 2, 0, 1, 6, 3],
+        k = [0, 7, 2, 3, 6, 7, 1, 1, 5, 5, 7, 6],
+        opacity = 1,
+        color = colour,
+        flatshading = True
+    )
+
+    return surface, line
 
 
-def outputResult(packing_result, bin_size = 100):
+def plot_result(packing_result, bin_size_x, bin_size_y):
     '''
-    packing_result: [box1 ,box2, box3, ...]
-    box1:[l, w, h, p_x, p_y, p_z]
+    packing_result: [box1, box2, box3, ...]
+    box1:[length, width, height, x, y, z]
     '''
+
     # Check, whetcher boxes are overlapping
-    box_num = len(packing_result)                                                                                # All the info of each box
+    box_num = len(packing_result)                                                                               # All the info of each box
     for i in range(box_num - 1):
         for j in range(i + 1, box_num):
-            box_i = np.array(packing_result[i])                                                                  # One box has [length, width, height, x_coordinate, y_coordinate, z_coordinate]
+            box_i = np.array(packing_result[i])                                                                 # One box has [length, width, height, x_coordinate, y_coordinate, z_coordinate]
             box_j = np.array(packing_result[j])
             box_i_centre = box_i[0:3] / 2 + box_i[3:]
             box_j_centre = box_j[0:3] / 2 + box_j[3:]
@@ -49,23 +80,144 @@ def outputResult(packing_result, bin_size = 100):
     packing_array = np.array(packing_result)
     box_height_coordinate = packing_array[:, 2] + packing_array[:, 5]
     max_height = np.max(box_height_coordinate)                                                                  # Find the highest point of all boxes. This will is needed to calculate the bin utilisation in the z direction.
-    use_ratio = packing_array[:, :3].prod(1).sum() / (bin_size * bin_size * max_height)                         # packing_array[:, :3].prod(1).sum(): Sum of products of L/W/H of each box
-    print(use_ratio)
+    use_ratio = packing_array[:, :3].prod(1).sum() / (bin_size_x * bin_size_y * max_height)                     # packing_array[:, :3].prod(1).sum(): Sum of products of L/W/H of each box
+    print("[The use ratio is: %.2f %%]"%(use_ratio * 100))
 
-    fig = plt.figure()
-
-    ax = Axes3D(fig)
-    ax.set_xlim(0, bin_size)
-    ax.set_ylim(0, bin_size)
-    ax.set_zlim(0, max_height)
-    ax.set_xlabel('X')
-    ax.set_ylabel('Y')
-    ax.set_zlabel('Z')
-    ax.set_title("uR:%s%%" % (use_ratio.item() * 100), fontproperties="SimHei")
+    # Plot result
+    traces = []                                                                                                 # List of Plotly objects
     for box in packing_result:
-        color = (random.random(), random.random(), random.random(), 1)
-        length, width, height, start_l, start_w, start_h = box
-        plotBox(start_l, start_w, start_h,
-                length, width, height, ax, color)
+        colour = (random.random(), random.random(), random.random())                                            # RGB --> float ∈ [0, 1]
+        length, width, height, x, y, z = box
+        scale = 0.0007 * max(bin_size_y, bin_size_x)                                                            # Plotly does not automatically scale 3D lines appropriately. Therefore, relative scaling is used here: the larger the bin area, the larger the line width.
+        box_surfaces, box_edges = cube_trace(x, y, z, length, width, height, scale, colour)
+        traces.append(box_surfaces)
+        traces.append(box_edges)
 
-    plt.show()
+    _, container_edges = cube_trace(0, 0, 0, bin_size_x, bin_size_y, max_height, scale, (0, 0, 0))              # RGB black
+    traces.append(container_edges)
+
+    figure = go.Figure(data = traces)
+
+    figure.update_layout(scene = dict(
+        xaxis = dict(showbackground = False, color = 'white'),                                                  # Axis lines and ticks turn white. Trying to hide them if not needed
+        yaxis = dict(showbackground = False, color = 'white'),
+        zaxis = dict(showbackground = False, color = 'white'),
+        )
+    )
+
+    figure.show()
+
+
+def set_device():
+    if torch.cuda.is_available():
+        device = torch.device('cuda:0')
+        torch.cuda.empty_cache()
+        print(f"GPU device set to: {str(torch.cuda.get_device_name(device))}")
+    else:
+        print("Device set to: cpu")
+        device = torch.device('cpu')
+    return device
+
+
+
+if __name__ == '__main__':
+    process_num          =         16
+    test_num             =       1024
+    box_num              =        100
+    bin_size_x           =        100
+    bin_size_y           =        100
+    bin_size_z           = 10_000_000
+    bin_size_ds_x        =         10
+    bin_size_ds_y        =         10
+    min_factor           =         0.1
+    max_factor           =         0.5
+    rotation_constraints = None
+
+    load_file_path       = "XYZ"
+    device               = set_device()
+
+    action_queue_list = [Queue(maxsize = 1) for _ in range(process_num)]
+    result_queue_list = [Queue(maxsize = 1) for _ in range(process_num)]
+    process_list = list()
+
+    env = Environment(
+        bin_size_x           = bin_size_x,
+        bin_size_y           = bin_size_y,
+        bin_size_z           = bin_size_z,
+        bin_size_ds_x        = bin_size_ds_x,
+        bin_size_ds_y        = bin_size_ds_y,
+        box_num              = box_num,
+        min_factor           = min_factor,
+        max_factor           = max_factor,
+        rotation_constraints = rotation_constraints
+    )
+
+    box_array_list = [Environment.generate_box_array(bin_size_x, bin_size_y, box_num, min_factor, max_factor) for _ in range(test_num)]
+
+    for process_index in range(process_num):
+        process_object = mp.Process(target = solve_problem,
+                                    args = (action_queue_list[process_index],
+                                            result_queue_list[process_index],
+                                            box_array_list,
+                                            env
+                                        )
+                                )
+        process_list.append(process_object)
+    [process_object.start() for process_object in process_list]
+
+    actor = Actor(bin_size_ds_x,
+                  bin_size_ds_y,
+                  dim_model = params.dim_model,
+                  binary_dim = params.binary_dim,
+                  plane_feature_dim = params.plane_feature_dim,
+                ).to(device)
+    actor.load_state_dict(torch.load(load_file_path, map_location = device))
+
+    [action_queue_list[process_index].put(False) for process_index in range(process_num)]
+    result_list = [result_queue.get() for result_queue in result_queue_list]
+    state_list = [result[0] for result in result_list]
+
+    total_time = 0
+    use_ratio_list = []
+    packing_result_list = []
+
+    for i in range (test_num):
+        starting_time = time.time()
+
+        for j in range(box_num):
+            state = list(map(list, zip(*state_list)))
+            state = [torch.as_tensor(np.array(s), dtype = torch.float32, device = device) for s in state]
+            # state[2] = state[2].squeeze(0)                                                                                # Use if [[[...]]] instead of [[...]]
+
+            ''' See explore_environment_multiprocessing() in agent.py for comments on the following code '''
+            action, probabilities = actor.get_action_and_probabilities(state)
+            action_list = np.array([action.detach().cpu().numpy() for action in action]).transpose()
+            action_int_list = action_list.tolist()
+            [action_queue_list[process_index].put(action_int_list[process_index]) for process_index in range(process_num)]
+            result_list = [result_queue.get() for result_queue in result_queue_list]
+            result_list = list(map(list, zip(*result_list)))
+            state_list = result_list[0]
+
+            if result_list[2][0]:                                                                                           # result_x = (state, reward, done, use_ratio)
+                time_elapsed = time.time() - starting_time
+                # avg_use_ratio = sum(result_list[3]) / process_num
+                use_ratio_list.append(max(result_list[3]))
+                packing_result_list.append(result_list[4][np.array(result_list[3]).argmax()])
+                total_time += time_elapsed
+                break
+
+    use_ratio = sum(use_ratio_list) / test_num
+    use_time = total_time / test_num
+    print("average use ratio:", use_ratio)
+    print("average time:", use_time)
+
+    [process_object.join() for process_object in process_list]
+
+    bestResult = packing_result_list[np.array(use_ratio_list).argmax()]
+    worseResult = packing_result_list[np.array(use_ratio_list).argmin()]
+
+    plot_result(bestResult, bin_size_x, bin_size_y)
+    print("The best use ratio of instances is:%.2f %%" % (max(use_ratio_list)))
+
+    plot_result(worseResult, bin_size_x, bin_size_y)
+    print("The worse use ratio of instances is:%.2f %%" % (min(use_ratio_list)))
