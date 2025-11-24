@@ -85,7 +85,7 @@ class Agent:
                                                                                                     # srdap = (state, reward, done, action, probabilities)
         last_done = [0] * process_num                                                               # Stores for each process at which iteration step the last done = True episode ended. Used later to extract only the relevant (completed) data per process.
 
-        result_list = [result_queue.get() for result_queue in result_queue_list]                    # result_list = [result_0, --> result_x = (state, reward, done, use_ratio).
+        result_list = [result_queue.get() for result_queue in result_queue_list]                    # result_list = [result_0, --> result_x = (state, reward, done, use_ratio, packing_result).
                                                                                                     #                result_1,
                                                                                                     #                ...     ]
 
@@ -100,8 +100,8 @@ class Agent:
             
             action, probabilities = self.actor.get_action_and_probabilities(state)
             
-            action_list = np.array([act.detach().cpu().numpy() for act in action]).transpose()      # Converts tensors back to NumPy (CPU-compatible) for multiprocess communication. Transpose so that each process gets its own action
-            probabilities_list = list(zip(*[prob.detach().cpu().numpy() for prob in probabilities]))
+            action_list = np.array([action.detach().cpu().numpy() for action in action]).transpose()# Converts tensors back to NumPy (CPU-compatible) for multiprocess communication. Transpose so that each process gets its own action
+            probabilities_list = list(zip(*[probability.detach().cpu().numpy() for probability in probabilities]))
             action_int_list = action_list.tolist()
             [action_queue_list[process_index].put(action_int_list[process_index]) for process_index in range(process_num)]  # Actions are pushed into the action_queue_list. Motivation of those 4 lines: Each parallel environment receives the action selected by the actor.
             

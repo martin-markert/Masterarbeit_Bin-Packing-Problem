@@ -15,7 +15,7 @@ class Environment:                                              # See chapter 4.
                  min_factor = 0.1,                              # Chosen by the authors
                  max_factor = 0.5,                              # Chosen by the authors
                  rotation_constraints = None,
-                 bin_height_if_not_start_with_all_zeros = None  # For debugging only, remove later
+                 # bin_height_if_not_start_with_all_zeros = None  # For debugging only, remove later
                 ):
         
         if (bin_size_x < 1 or bin_size_y < 1 or bin_size_z < 1 or bin_size_ds_x < 1 or bin_size_ds_y < 1):

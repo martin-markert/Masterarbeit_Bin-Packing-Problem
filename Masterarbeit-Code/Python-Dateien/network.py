@@ -313,7 +313,7 @@ class Rotation_Selection(nn.Module):
 
 class Actor(nn.Module):
     def __init__(self,
-                 bin_size_x,
+                 bin_size_x,            
                  bin_size_y,
                  dim_model = params.dim_model,
                  binary_dim = params.binary_dim,
