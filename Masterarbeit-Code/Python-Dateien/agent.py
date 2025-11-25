@@ -95,7 +95,7 @@ class Agent:
         
         for i in range(target_step // process_num):                                                 # The division ensures that each environment contributes approximately target_step / process_num steps.
             state = list(map(list, zip(*state_list)))                                               # Transposes the state_list to process all box states together and all bin states together in batches. Then makes it a list
-            state = [torch.as_tensor(np.array(s), dtype = torch.float32, device = self.device) for s in state]  # Make state a PyTorch tensor. Firwst NumPy array, to ensure that the data is of a uniform type
+            state = [torch.as_tensor(np.array(s), dtype = torch.float32, device = self.device) for s in state]  # Make state a PyTorch tensor. First NumPy array, to ensure that the data is of a uniform type
             state[2] = state[2].squeeze(0)                                                          # Removes dimension, that has bee added in the line above: [[[...]]] --> [[...]]
             
             action, probabilities = self.actor.get_action_and_probabilities(state)
