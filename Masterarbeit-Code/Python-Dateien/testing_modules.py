@@ -5,6 +5,7 @@ from network import *
 from agent import *
 from explore_environment import *
 from train import *
+from test import *
 
 import torch
 import torch.nn as nn
@@ -1286,6 +1287,31 @@ def test_train_smoke():
 
 
 
+'''
+    --- Testing the file test.py ---
+'''
+
+
+def test_test(bin_size_x, bin_size_y):
+    packing_result = [
+                  [2, 2, 2, 0, 0, 0],
+                  [4, 6, 3, 2, 0, 0],  
+                  [2, 4, 2, 0, 2, 0],
+                  [3, 3, 5, 7, 0, 0],
+                  [7, 3, 2, 0, 0, 3],
+                  [4, 3, 5, 6, 3, 0],
+                  [5, 4, 6, 0, 6, 0],
+                  [2, 3, 3, 0, 3, 2],
+                  [4, 3, 2, 2, 3, 3],
+                  [10, 5, 5, 0, 0, 5],
+                  [4, 4, 5, 5, 6, 0],
+                  [5, 5, 5, 5, 5, 5],
+                  [5, 5, 4, 0, 5, 6]
+                ]
+
+    plot_result(packing_result, bin_size_x, bin_size_y)
+
+
 if __name__ == "__main__":
     
     container_matrix = np.array([
@@ -1424,7 +1450,14 @@ if __name__ == "__main__":
 
     ''' train.py '''
 
-    test_train_smoke()
+    # test_train_smoke()
+
+
+
+    ''' test.py '''
+
+    # test_test(10, 10)                                                                                 # Works
+    # test_main()                                                                                       # TODO
 
 
 
