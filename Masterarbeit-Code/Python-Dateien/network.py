@@ -720,32 +720,3 @@ class Position_Selection_Old(nn.Module):
         position_logits = self.fully_connected(position_decoding).squeeze(-1)                                   # fully_connected() reduces the transformer output to one score per position (position_logits).
 
         return position_logits
-    
-
-
-
-
-
-'''
-    --- Tests ---
-'''
-
-    # Spatial_Positional_Encoding
-
-# dim_model = 8
-# bin_size_x = 3
-# bin_size_y = 3
-# seq_len = bin_size_x * bin_size_y
-
-# batch_size = 1
-# box_num = 3
-# box_state = torch.tensor([[[1, 2, 3],
-#                            [4, 5, 6],
-#                            [7, 8, 9]]], dtype=torch.long)
-
-# binary_dim = 4
-
-# encoder = Spatial_Positional_Encoding(dim_model, bin_size_x, bin_size_y)
-# x = torch.arange(batch_size * seq_len * dim_model, dtype=torch.float32).reshape(batch_size, seq_len, dim_model)
-# out = encoder(x)
-# print("SpatialPositionEncoding output:\n", out)
