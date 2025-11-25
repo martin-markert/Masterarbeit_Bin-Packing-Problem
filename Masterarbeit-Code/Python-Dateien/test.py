@@ -15,7 +15,8 @@ from multiprocessing import Queue
 params = Parameters()
 
 def cube_trace(x, y, z, length, width, height, scale, colour):
-    line = go.Scatter3d(
+    edges = go.Scatter3d(                                                                                       # Some edges have to be drawn twice at a cube is no Euler circle or Euler path
+                                                                                                                # (x[i]y[i]z[i]) is a coordinate, (x[i+1]y[i+1]z[i+1]) the next. A line is drawn between them and so on, making the edges of the cuboids
         x = [x, x + length, x + length, x,         x, x,          x + length, x + length, x,          x,          x + length, x + length, x + length, x + length, x,          x        ],
         y = [y, y,          y + width,  y + width, y, y,          y,          y + width,  y + width,  y,          y,          y,          y + width,  y + width,  y + width,  y + width],
         z = [z, z,          z,          z,         z, z + height, z + height, z + height, z + height, z + height, z + height, z,          z,          z + height, z + height, z        ],
@@ -31,24 +32,22 @@ def cube_trace(x, y, z, length, width, height, scale, colour):
     width  -= 2 * scale
     height -= 2 * scale
 
-    colour_limit = 100
-
-    colour = 'rgb(%s,%s,%s)' % (255 - colour[0] * colour_limit, 255 - colour[1] * colour_limit, 255 - colour[2] * colour_limit)
+    colour = 'rgb(%s,%s,%s)' % colour
+    
     surface = go.Mesh3d(
-        # 8 vertices of a cube
-        x = [x, x, x + length, x + length, x, x, x + length, x + length],
-        y = [y, y + width, y + width, y, y, y + width, y + width, y],
-        z = [z, z, z, z, z + height, z + height, z + height, z + height],
+        x = [x, x,         x + length, x + length, x,          x,          x + length, x + length],             # Coordinates of the corner points of the cuboid
+        y = [y, y + width, y + width,  y,          y,          y + width,  y + width,  y         ],
+        z = [z, z,         z,          z,          z + height, z + height, z + height, z + height],
 
-        i = [7, 0, 0, 0, 4, 4, 6, 6, 4, 0, 3, 2],
-        j = [3, 4, 1, 2, 5, 6, 5, 2, 0, 1, 6, 3],
-        k = [0, 7, 2, 3, 6, 7, 1, 1, 5, 5, 7, 6],
+        i = [7, 0, 0, 0, 4, 4, 6, 6, 4, 0, 3, 2],                                                               # Mesh3d draws triangles. 2 triangles = 1 cuboid
+        j = [3, 4, 1, 2, 5, 6, 5, 2, 0, 1, 6, 3],                                                               # Those are the indices of the corner points (x[i], y[i], z[i])
+        k = [0, 7, 2, 3, 6, 7, 1, 1, 5, 5, 7, 6],                                                               # (i[i]j[i]k[i]) and (i[i+1]j[i+1]k[i+1]) together form one of the 6 surfaces of each cuboid. (i[i+2]j[i+2]k[i+2]) and (i[i+3]j[i+3]k[i+3]) together the next one and so on
         opacity = 1,
         color = colour,
         flatshading = True
     )
 
-    return surface, line
+    return edges, surface
 
 
 def plot_result(packing_result, bin_size_x, bin_size_y):
@@ -72,8 +71,8 @@ def plot_result(packing_result, bin_size_x, bin_size_y):
                 raise Exception(
                         f"Items are overlapping. Please check the outcome.\n"
                         f"Overlapping boxes:\n"
-                        f"Box 1 coordinates({box_i[3]}, {box_i[4]}, {box_i[5]}), with size {box_i[0]}, {box_i[1]}, {box_i[2]})\n"
-                        f"Box 2 coordinates({box_j[3]}, {box_j[4]}, {box_j[5]}), with size {box_j[0]}, {box_j[1]}, {box_j[2]})."
+                        f"Box with coordinates({box_i[3]}, {box_i[4]}, {box_i[5]}), with size ({box_i[0]}, {box_i[1]}, {box_i[2]}) and\n"
+                        f"Box with coordinates({box_j[3]}, {box_j[4]}, {box_j[5]}), with size ({box_j[0]}, {box_j[1]}, {box_j[2]})"
                     )
 
     # Calculate the use_ratio
@@ -85,15 +84,20 @@ def plot_result(packing_result, bin_size_x, bin_size_y):
 
     # Plot result
     traces = []                                                                                                 # List of Plotly objects
+    colour_limit_min = 0
+    colour_limit_max = 255
     for box in packing_result:
-        colour = (random.random(), random.random(), random.random())                                            # RGB --> float ∈ [0, 1]
+        colour = (random.randint(colour_limit_min, colour_limit_max),                                                            # RGB values
+                  random.randint(colour_limit_min, colour_limit_max),
+                  random.randint(colour_limit_min, colour_limit_max)
+                )
         length, width, height, x, y, z = box
-        scale = 0.0007 * max(bin_size_y, bin_size_x)                                                            # Plotly does not automatically scale 3D lines appropriately. Therefore, relative scaling is used here: the larger the bin area, the larger the line width.
-        box_surfaces, box_edges = cube_trace(x, y, z, length, width, height, scale, colour)
+        scale = 0.0007 * max(bin_size_x, bin_size_y)                                                            # Plotly does not automatically scale 3D lines appropriately. Therefore, relative scaling is used here: the larger the bin area, the larger the line width.
+        box_edges, box_surfaces = cube_trace(x, y, z, length, width, height, scale, colour)
         traces.append(box_surfaces)
         traces.append(box_edges)
 
-    _, container_edges = cube_trace(0, 0, 0, bin_size_x, bin_size_y, max_height, scale, (0, 0, 0))              # RGB black
+    container_edges, _  = cube_trace(0, 0, 0, bin_size_x, bin_size_y, max_height, scale, (0, 0, 0))              # RGB black
     traces.append(container_edges)
 
     figure = go.Figure(data = traces)
@@ -102,9 +106,22 @@ def plot_result(packing_result, bin_size_x, bin_size_y):
         xaxis = dict(showbackground = False, color = 'white'),                                                  # Axis lines and ticks turn white. Trying to hide them if not needed
         yaxis = dict(showbackground = False, color = 'white'),
         zaxis = dict(showbackground = False, color = 'white'),
-        )
-    )
+        aspectmode = 'manual',
+        aspectratio = dict(x = bin_size_x,
+                           y = bin_size_y,
+                           z = max_height
+                        )     
+                    ),
+                    showlegend = False
+                )
 
+    import os
+
+    file = "plot.html"
+    figure.write_html(file)
+    print(os.path.abspath(file))
+
+    # figure.write_html("plot.html")                                                                              # If one works without a GUI that helps seeing the result
     figure.show()
 
 
@@ -131,7 +148,7 @@ if __name__ == '__main__':
     bin_size_ds_y        =         10
     min_factor           =         0.1
     max_factor           =         0.5
-    rotation_constraints = None
+    rotation_constraints = [[1, 4]]
 
     load_file_path       = "XYZ"
     device               = set_device()
@@ -152,7 +169,7 @@ if __name__ == '__main__':
         rotation_constraints = rotation_constraints
     )
 
-    box_array_list = [Environment.generate_box_array(bin_size_x, bin_size_y, box_num, min_factor, max_factor) for _ in range(test_num)]
+    box_array_list = [Environment.generate_boxes(env, bin_size_x, bin_size_y, min_factor, max_factor, box_num, rotation_constraints) for _ in range(test_num)]
 
     for process_index in range(process_num):
         process_object = mp.Process(target = solve_problem,
