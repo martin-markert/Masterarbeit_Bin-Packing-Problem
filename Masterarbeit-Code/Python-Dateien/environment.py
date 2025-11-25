@@ -61,10 +61,10 @@ class Environment:                                              # See chapter 4.
         self.residual_box_num = box_num                 # Amount of boxes that have not been packed (variable value)
 
     # Environment constraints   
-        # self.original_bin_heights = np.zeros((self.bin_size_x, self.bin_size_y))                                  # Creates the empty 2D Matrix of the bin with all heights = 0
-        if bin_height_if_not_start_with_all_zeros is None:
-            bin_height_if_not_start_with_all_zeros = np.zeros((self.bin_size_x, self.bin_size_y))
-        self.original_bin_heights = bin_height_if_not_start_with_all_zeros                                          # TODO: This line is for debugging. Remove those 3 lines later and replace by line above
+        self.original_bin_heights = np.zeros((self.bin_size_x, self.bin_size_y))                                  # Creates the empty 2D Matrix of the bin with all heights = 0
+        # if bin_height_if_not_start_with_all_zeros is None:
+        #     bin_height_if_not_start_with_all_zeros = np.zeros((self.bin_size_x, self.bin_size_y))
+        # self.original_bin_heights = bin_height_if_not_start_with_all_zeros                                          # TODO: This line is for debugging. Remove those 3 lines later and replace by line above
         
         self.original_plane_features = self.get_bin_features(self.original_bin_heights)                             # Calculates the plane-feature matrix
         self.block_size_x = self.bin_size_x // self.bin_size_ds_x                                                   # Size of one downsampling block (cells per block in the x direction) --> Technically “//” is not needed as for the downsampling only divisions with no remainder are allowed
@@ -339,7 +339,8 @@ class Environment:                                              # See chapter 4.
             if not isinstance(v, int):
                 raise TypeError(f"action[{i}] must be an integer (found: {type(v).__name__} with value {v})")
 
-        position, box_index, rotation = action                                              # "action" contains the three sub-actions by the 3 transformers: position in container (index of the downsampling_block), box to place and its orientation (as in chapter 3.1.2)
+        # position, box_index, rotation = action                                            # "action" contains the three sub-actions by the 3 transformers: position in container (index of the downsampling_block), box to place and its orientation (as in chapter 3.1.2)
+        box_index, position, rotation = action                                              # Technically thath the wrong order if looed at it frome the order of the transformers
         
         if self.max_indices is not None:                                                    # If downsampling took place (standard use case)
             val_array = self.max_indices[position]                                          # How to get the real coordinates of the non-downsampled container? The transformer decision of the position is based on the downsampling_block.
