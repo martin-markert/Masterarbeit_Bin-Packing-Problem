@@ -125,18 +125,6 @@ def plot_result(packing_result, bin_size_x, bin_size_y):
     figure.show()
 
 
-def set_device():
-    if torch.cuda.is_available():
-        device = torch.device('cuda:0')
-        torch.cuda.empty_cache()
-        print(f"GPU device set to: {str(torch.cuda.get_device_name(device))}")
-    else:
-        print("Device set to: cpu")
-        device = torch.device('cpu')
-    return device
-
-
-
 if __name__ == '__main__':
     process_num          =         16
     test_num             =       1024
@@ -148,10 +136,10 @@ if __name__ == '__main__':
     bin_size_ds_y        =         10
     min_factor           =         0.1
     max_factor           =         0.5
-    rotation_constraints = [[1, 4]]
+    rotation_constraints = params.rotation_constraints
 
-    load_file_path       = "XYZ"
-    device               = set_device()
+    load_file_path       = "save/100_100_100_10_0.1_0.5_0/actor.pth"
+    device               = params.set_device()
 
     action_queue_list = [Queue(maxsize = 1) for _ in range(process_num)]
     result_queue_list = [Queue(maxsize = 1) for _ in range(process_num)]

@@ -676,7 +676,7 @@ def test_rotation_selection(container_matrix = None, boxes = None, rotation_cons
     box_mask = torch.tensor(box_mask, dtype = torch.float32) 
 
     rotation_constraints = state[2]
-    box_rotation_shape_all = generate_box_rotations_torch(boxes, rotation_constraints = rotation_constraints)
+    box_rotation_shape_all = generate_box_rotations(boxes, rotation_constraints = rotation_constraints)
 
     softmax_box_index = nn.Softmax(-1)
 
