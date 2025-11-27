@@ -15,7 +15,6 @@ class Agent:
                  learning_rate_critic,                                                              # In the paper it is 1e-4
                  load_model = None,                                                                 # Whether a pre-trained model shall be used. Useful for checkpoints
                  cwd = None,                                                                        # Current working directory. Where shall the models be saved?
-                 gpu_id = 0,                                                                        # 0 --> first GPU, -1 --> CPU.
                  env_num = 1
                 ):                                                                                  # Number of parallel environments
         super().__init__()
@@ -26,8 +25,7 @@ class Agent:
         self.lambda_entropy = params.lambda_entropy                                                 # A weight for entropy regularisation. Value not mentioned in the paper, so it is guessed.
         self.lambda_gae_adv = params.lambda_gae_adv                                                 # λ for Generalized Advantage Estimation in PPO as in Schulman et al. - Proximal Policy Optimization Algorithms
 
-        self.device = torch.device(f"cuda:{gpu_id}" if (                                            # Shall the training be done on the GPU or the CPU?
-        torch.cuda.is_available() and (gpu_id >= 0)) else "cpu")
+        self.device = params.set_device()                                                           # Choose device for training. GPU ist the standard case
 
         self.trajectory_list = [list() for _ in range(env_num)]                                     # Creates a list for each parallel environment to store trajectories --> sequence of states, actions, and rewards experienced by the agent. Necessary to perform PPO updates.
 
@@ -57,18 +55,6 @@ class Agent:
         self.actor_optimiser = torch.optim.Adam(self.actor.parameters(), learning_rate_actor)       # The adam optimiser is being use, as stated by the authors
         self.critic_optimiser = torch.optim.Adam(self.critic.parameters(), learning_rate_critic)
 
-    '''
-    def select_action(self, state):                                                                 # Selects the action based on the current state
-        state = [torch.as_tensor(s, dtype=torch.float32, device = self.device).unsqueeze(0) for s in state] # Converts each element s into a PyTorch tensor so that PyTorch can calculate with it and adds a batch dimension.
-        action, probabilities = self.actor.get_action_and_probabilities(state)
-
-        action = [act[0].detach().cpu().numpy() for act in action]                                  # act[0] --> because there is a batch dimension of 1, the “real action” is extracted.      
-        probs = [prob[0, :].detach().cpu().numpy() for prob in probs]                               # .detach() detaches the tensor from the computation graph. We do not want gradients when executing the action.
-                                                                                                    # .cpu() if the tensor was on the GPU, it is moved to the CPU (GPU is only used for training, for code one uses CPU).
-                                                                                                    # .numpy() converts the tensor into a NumPy array, which is easier to handle (e.g. for the environment). 
- 
-        return action, probabilities                                                                #  One action consists of (box_index, position_index, rotation_index)
-    '''
 
     def explore_environment_multiprocessing(self,
                                             action_queue_list,                                      # Queue for each environment to pass actions from the agent
@@ -89,14 +75,14 @@ class Agent:
                                                                                                     #                result_1,
                                                                                                     #                ...     ]
 
-        state_list = [result[0] for result in result_list]                                          # state_list = [state_env_0, --> state_env_x = (bin_state, box_state, packing_mask) 
+        state_list = [result[0] for result in result_list]                                          # state_list = [state_env_0, --> state_env_x = (bin_state, box_state, rotation_constraints, packing_mask) 
                                                                                                     #               state_env_1,
                                                                                                     #               ...        ]
         
         for i in range(target_step // process_num):                                                 # The division ensures that each environment contributes approximately target_step / process_num steps.
             state = list(map(list, zip(*state_list)))                                               # Transposes the state_list to process all box states together and all bin states together in batches. Then makes it a list
+            state[2] = [np.array(state[2][0])]                                                      # Gets rotation_constraints into the right form and removes dimension, that has been added in the line above: [[[...]]] --> [[...]]               
             state = [torch.as_tensor(np.array(s), dtype = torch.float32, device = self.device) for s in state]  # Make state a PyTorch tensor. First NumPy array, to ensure that the data is of a uniform type
-            state[2] = state[2].squeeze(0)                                                          # Removes dimension, that has bee added in the line above: [[[...]]] --> [[...]]
             
             action, probabilities = self.actor.get_action_and_probabilities(state)
             
@@ -156,45 +142,46 @@ class Agent:
 
             block_size = batch_size * 2
             value_buffer = [self.critic([s[i:i + block_size] for s in state_buffer]) for i in range(0, buffer_length, block_size)]  # Calculates the V(s)
-            buf_value = torch.cat(buf_value, dim = 0)                                               # Make all mini batches one tensor again
+            value_buffer = torch.cat(value_buffer, dim = 0)                                         # Make all mini batches one tensor again
 
             logprob_buffer = self.actor.get_old_logprob(action_buffer, probabilities_buffer)        # Log probabilities of old actions under the old policy (See chapter 3.2.2 in the paper)
 
             array_of_sum_of_rewards, advantage_array = self.get_reward_sum(buffer_length,           # Sum of all the (discounted) rewards and array of advantage values for PPO: 𝐴ₜ = 𝑅ₜ − 𝑉(𝑠ₜ), which shows how good an action was compared to the critic's prediction.
                                                                            reward_array = buffer[3],
                                                                            mask_array = buffer[4],
-                                                                           value_array = value_buffer.cpu().numpy(),)   # TODO Remove comma, if no tuple will be needed later
+                                                                           value_array = value_buffer.cpu().numpy())
             buffer_of_sum_of_rewards, advantage_buffer = [torch.as_tensor(array, device = self.device)
                                         for array in (array_of_sum_of_rewards, advantage_array)]    # Make them PyTprch tensors on GPU/CPU
-            advantage_buffer = (advantage_buffer - advantage_buffer.mean()) / (advantage_buffer.std() + 1e-5)   # Advantage values are normalised
+            advantage_buffer = (advantage_buffer - advantage_buffer.mean()) / (advantage_buffer.std() + 1e-8)   # Advantage values are normalised. 1e-8 Prevents division by zero if the standard deviation is exactly 0.
+
             del probabilities_buffer, buffer[:], array_of_sum_of_rewards, advantage_array
 
-            loss_critic = loss_actor = logprob = None                                               # In case thr for loop hat zero iteration, which will likely never happen
+        loss_critic = loss_actor = logprob = None                                               # In case the for loop hat zero iterations, which will likely never happen
 
-            for _ in range(int(buffer_length / batch_size * repeat_times)):                         # Repeat updates repeat_times across the entire buffer and draw random mini-batches (indices) of size batch_size.
-                indices = torch.randint(buffer_length, size = (batch_size,), requires_grad = False, device = self.device)   # size is a tuple to make it iterable
+        for _ in range(int(buffer_length / batch_size * repeat_times)):                         # Repeat updates repeat_times across the entire buffer and draw random mini-batches (indices) of size batch_size.
+            indices = torch.randint(buffer_length, size = (batch_size,), requires_grad = False, device = self.device)   # size is a tuple to make it iterable
 
-                state = [state[indices] for state in state_buffer]                                  # Selection of the mini-batch data
-                action = [action[indices] for action in action_buffer]
-                sum_of_rewards = buffer_of_sum_of_rewards[indices]
-                logprob = logprob_buffer[indices]                                                   # 𝜋_𝜃(𝑎ₜ|𝑠ₜ)
-                advantage = advantage_buffer[indices]
+            state = [state[indices] for state in state_buffer]                                  # Selection of the mini-batch data
+            action = [action[indices] for action in action_buffer]
+            sum_of_rewards = buffer_of_sum_of_rewards[indices]
+            logprob = logprob_buffer[indices]                                                   # 𝜋_𝜃(𝑎ₜ|𝑠ₜ)
+            advantage = advantage_buffer[indices]
 
-                new_logprob, policy_entropy = self.actor.get_logprob_entropy(state, action)         # Actor loss (PPO with clipping & entropy) will be done in the next lines
-                                                                                                    # Entropy: High entropy --> lots of exploration Low entropy --> policy becomes deterministic
-                ratio = (new_logprob - logprob.detach()).exp()                                      # ratio = π_new / π_old --> for PPO clipping (First formula in chapter 3.2.2) exp() removes log(): log(...) --> ...
-                surrogate1 = advantage * ratio                                                      # PPO loss                  --> 𝑟ₜ(𝜃)𝐴̂ᵢ
-                surrogate2 = advantage * ratio.clamp(1 - self.ratio_clip, 1 + self.ratio_clip)      # PPO loss with clipping    --> (𝑟ₜ(𝜃),1-ϵ, 1+ϵ)𝐴̂ᵢ
-                surrogate_loss = -torch.min(surrogate1, surrogate2).mean()                          # 𝐿^𝐶𝐿𝐼𝑃(𝜃) = Êₜ[min(𝑟ₜ(𝜃)𝐴̂ₜ, clip(𝑟ₜ(𝜃), 1 − 𝜖, 1+ 𝜖 )𝐴̂ₜ)]. Êₜ = .mean()
-                                                                                                    # “-” before the tensor because it should be minimised, PPO loss is actually a maximisation problem.
-                loss_actor = surrogate_loss + policy_entropy * self.lambda_entropy                  # Loss of the actor
-                self.optimiser_update(self.actor_optimiser, loss_actor)                             # Triggers the actual learning of the actor. Calculates backpropagation via the PPO loss and updates the policy weights.
+            new_logprob, policy_entropy = self.actor.get_logprob_entropy(state, action)         # Actor loss (PPO with clipping & entropy) will be done in the next lines
+                                                                                                # Entropy: High entropy --> lots of exploration Low entropy --> policy becomes deterministic
+            ratio = (new_logprob - logprob.detach()).exp()                                      # ratio = π_new / π_old --> for PPO clipping (First formula in chapter 3.2.2) exp() removes log(): log(...) --> ...
+            surrogate1 = advantage * ratio                                                      # PPO loss                  --> 𝑟ₜ(𝜃)𝐴̂ᵢ
+            surrogate2 = advantage * ratio.clamp(1 - self.ratio_clip, 1 + self.ratio_clip)      # PPO loss with clipping    --> (𝑟ₜ(𝜃),1-ϵ, 1+ϵ)𝐴̂ᵢ
+            surrogate_loss = -torch.min(surrogate1, surrogate2).mean()                          # 𝐿^𝐶𝐿𝐼𝑃(𝜃) = Êₜ[min(𝑟ₜ(𝜃)𝐴̂ₜ, clip(𝑟ₜ(𝜃), 1 − 𝜖, 1+ 𝜖 )𝐴̂ₜ)]. Êₜ = .mean()
+                                                                                                # “-” before the tensor because it should be minimised, PPO loss is actually a maximisation problem.
+            loss_actor = surrogate_loss + policy_entropy * self.lambda_entropy                  # Loss of the actor
+            self.optimiser_update(self.actor_optimiser, loss_actor)                             # Triggers the actual learning of the actor. Calculates backpropagation via the PPO loss and updates the policy weights.
 
-                value = self.critic(state).squeeze(-1)                                              # Critic gives the value
-                loss_critic = self.criterion(value, sum_of_rewards) / (sum_of_rewards.std() + 1e-6) # Calculates MSE loss --> How well does V(s) match the feedback?
-                self.optimiser_update(self.cri_optim, loss_critic)                                  # Triggers the actual learning of the actor. Calculates backpropagation via the PPO loss and updates the policy weights.
+            value = self.critic(state).squeeze(-1)                                              # Critic gives the value
+            loss_critic = self.criterion(value, sum_of_rewards) / (sum_of_rewards.std() + 1e-6) # Calculates MSE loss --> How well does V(s) match the feedback?
+            self.optimiser_update(self.critic_optimiser, loss_critic)                           # Triggers the actual learning of the actor. Calculates backpropagation via the PPO loss and updates the policy weights.
 
-            return loss_critic.item(), loss_actor.item(), logprob.mean().item()
+        return loss_critic.item(), loss_actor.item(), logprob.mean().item()
 
     def get_reward_sum(self,
                        buffer_length,
@@ -207,7 +194,6 @@ class Agent:
 
         previous_reward_sum = 0
         previous_advantage = 0
-        step = 0
 
         for i in range(buffer_length - 1, -1, -1):                                                  # Iterates backwards over the trajectory, as is customary with discounted rewards.
 
