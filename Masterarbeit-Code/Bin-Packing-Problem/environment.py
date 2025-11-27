@@ -218,8 +218,8 @@ class Environment:                                              # See chapter 4.
                     )  
             else:
                 raise ValueError(
-                        f"You passed no boxes but their rotation constraints. "
-                        f"Are you sure you wanted this?"
+                        "You passed no boxes but their rotation constraints. "
+                        "Are you sure you wanted this?"
                     )
         else:
             if rotation_constraints is None:                                                        # If there are boxes but no rotation_constraints were passed
@@ -325,7 +325,6 @@ class Environment:                                              # See chapter 4.
         Then the reward is calculated as in chapter 3.2.1
         Then there is a final check, wheter everything is done or another step will be needed
         '''
-        # action = (0, 0, 0)                  # <-- TODO Remove after testing. Just remove it. Don't think about it
         if not isinstance(action, tuple) or len(action) != 3:
             raise ValueError(
                     f"action must be a tuple with exactly 3 values, "
@@ -340,7 +339,7 @@ class Environment:                                              # See chapter 4.
                 raise TypeError(f"action[{i}] must be an integer (found: {type(v).__name__} with value {v})")
 
         # position, box_index, rotation = action                                            # "action" contains the three sub-actions by the 3 transformers: position in container (index of the downsampling_block), box to place and its orientation (as in chapter 3.1.2)
-        box_index, position, rotation = action                                              # Technically thath the wrong order if looed at it frome the order of the transformers
+        box_index, position, rotation = action                                              # Technically that is the wrong order if looked at it from the order of the transformers
         
         if self.max_indices is not None:                                                    # If downsampling took place (standard use case)
             val_array = self.max_indices[position]                                          # How to get the real coordinates of the non-downsampled container? The transformer decision of the position is based on the downsampling_block.
@@ -396,13 +395,9 @@ class Environment:                                              # See chapter 4.
             self.boxes, ((0, self.box_num - self.boxes.shape[0]), (0, 0)), constant_values = -1e9)                          # The array is then filled back to its original length self.box_num so that the dimension remains the same (this is important because the neural network expects a fixed input size). 
                                                                                                                             # The missing rows are filled with a very small value (−1e9), which effectively serves as “not present”.
                                                                                                                             # -np.inf could lead to problems like NaN or with softmax
-        # self.rotation_constraints = np.delete(self.rotation_constraints, box_index, 0)
+        used_rotation_constraint = self.rotation_constraints[box_index]                                                     # Take the rotation_constraints of box [box_inedx] and put it to the end of the rotation_constraints
         self.rotation_constraints = self.rotation_constraints[:box_index] + self.rotation_constraints[box_index + 1:]
-
-        # self.rotation_constraints = np.pad(
-        #     self.rotation_constraints, ((0, self.box_num - self.rotation_constraints.shape[0]), (0, 0)), constant_values = -1e9)  # TODO: Is constant_values = -1e9 a good idea here?
-        self.rotation_constraints += [[int(-1e9)] for _ in range(self.box_num - len(self.rotation_constraints))]
-
+        self.rotation_constraints.append(used_rotation_constraint)
         
         self.residual_box_num -= 1
 
