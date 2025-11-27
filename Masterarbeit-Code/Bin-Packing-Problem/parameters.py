@@ -26,14 +26,15 @@ class Parameters():
         '''
         Arguments for the Environment as stated in chapter 4.1
         '''
-        self.bin_size_x    =     100
-        self.bin_size_y    =     100
-        self.bin_size_z    =     100                                # <-- As for now it can be anything
-        self.bin_size_ds_x =      10                                # ds = downsampled
-        self.bin_size_ds_y =      10
-        self.box_num       =      10                                # <-- Or whatever your heart desires
-        self.min_factor    =       0.1                              # In the paper they divide by 10, I don't, I multiply by 1/10
-        self.max_factor    =       0.5
+        self.bin_size_x    =        10                             # Like in the paper
+        self.bin_size_y    =        10                             # Like in the paper
+        self.bin_size_z    =        25                             # <-- As for now it can be anything
+        self.bin_size_ds_x =         10                             # Like in the paper (ds = downsampled)
+        self.bin_size_ds_y =         10                             # Like in the paper
+        self.box_num       =          6                             # <-- Whatever your heart desires
+        self.min_factor    =          0.1                           # # Like in the paper (In the paper they divide by 10, I don't, I multiply by 1/10)
+        self.max_factor    =          0.5                           # Like in the paper
+        self.rotation_constraints =   None                          # [[0, 1], [5], [0, 4, 2], [1, 2], [0, 1, 2, 3, 4, 5]]
 
         self.save_dir    = "{:d}_{:d}_{:d}_{:d}_{:.1f}_{:.1f}".format(self.bin_size_x, self.bin_size_y, self.bin_size_z, self.box_num, self.min_factor, self.max_factor)
 
@@ -51,6 +52,7 @@ class Parameters():
         self.dim_model                        =  128          
         self.plane_feature_dim                =    7 * self.binary_dim  # 7 Plane features (6 features + height) * the binary_dim
         self.batch_size                       =    1
+        self.gpu_id                           =    0                # 0 --> first GPU, 1 secons and so on. -1 --> CPU
         
         
         ''' Box_Embed() '''                                         # See chapter 3.1.3 --> Box encoder
@@ -134,6 +136,17 @@ class Parameters():
         torch.manual_seed(self.random_seed)                         # Same for PyTorch
         torch.set_num_threads(self.num_threads)                     # Determines how many CPU threads PyTorch uses internally
         torch.set_default_dtype(torch.float32)                      # Sets the default data type for newly created tensors to float32. This can be useful for controlling memory consumption and consistency in model training.
+
+
+    def set_device(self):
+        if torch.cuda.is_available() and self.gpu_id >= 0:
+            device = torch.device(f'cuda:{self.gpu_id}')
+            torch.cuda.empty_cache()
+            print(f"GPU device set to: {str(torch.cuda.get_device_name(device))}")
+        else:
+            print("Device set to: cpu")
+            device = torch.device('cpu')
+        return device
 
 
         
