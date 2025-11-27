@@ -36,7 +36,7 @@ def explore_environment(action_queue,
             state = env.reset()
             result_queue.put((state, 0, 0))
             action = action_queue.get()
-            print(action)                                               # action = (box_index, position_index, rotation_index)   
+            # print(action)                                               # action = (box_index, position_index, rotation_index)   
             if isinstance(action, list):
                 action = tuple(action)
         next_state, reward, done = env.step(action)
