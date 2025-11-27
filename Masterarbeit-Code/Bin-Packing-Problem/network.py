@@ -388,8 +388,8 @@ class Actor(nn.Module):
 
         ''' --- Position --- '''
         position_logits = self.position_action(bin_encoder, box_encoder)                                        # Returns the raw values for softmax for positions
-        box_rotation_shape_all = generate_box_rotations_torch(box_state,                                        # Shape should be (batch_size, -1, 6, 3)
-                                                              rotation_constraints = rotation_constraints)      # Why torch and not np.array?
+        box_rotation_shape_all = generate_box_rotations(box_state,                                              # Shape should be (batch_size, -1, 6, 3)
+                                                        rotation_constraints = rotation_constraints)            # Why torch and not np.array?
                                                                                                                 # One cannot apply Torch operations to it. If one wants to use it in the Actor-forward() function, one has to copy tensors to the GPU (torch.from_numpy(...)) --> unnecessarily slower.
         position_mask = packing_mask.all(1).all(1)                                                              # packing_mask contains True for non-packable positions (see ~packing_available in environment.py).
                                                                                                                 # This mask array is later used for softmax masking of the positions:
@@ -470,7 +470,7 @@ class Actor(nn.Module):
         log_prob_irxy = [irxy_distribution[i].log_prob(action[i]) for i in range(len(irxy_distribution))]
         log_prob = sum(log_prob_irxy)
         irxy_entropy = [dist.entropy().mean() for dist in irxy_distribution]
-        entropy = sum(entropy)
+        entropy = sum(irxy_entropy)
         
         return log_prob, entropy
                                                                                                               
@@ -610,13 +610,18 @@ def select_values_by_indices(tensor_batch, indices):                            
     return tensor_select                                                                                        #                 [6]])
 
 
-# TODO: Check, whether the dimensions are returned correctly as needed [] or [[]] or [[[]]] ...
-def generate_box_rotations_torch(boxes, rotation_constraints = None):                                           # TODO: Illegal rotations are returned as [0, 0, 0] to keep the dimension equal, when something like [[1], [2, 4]] is used. Is that a good solution?
+def generate_box_rotations(boxes, rotation_constraints = None):                                                 # TODO: Illegal rotations are returned as [0, 0, 0] to keep the dimension equal, when something like [[1], [2, 4]] is used. Is that a good solution?
                                                                                                                 # Maybe have all rotations + an extra rotation_mask?
                                                                                                                 # It should be documented that these rotations are interpreted as invalid.
     
+    rotation_constraints = rotation_constraints.squeeze(0).tolist()                                             # Make the shape so it is compatible woth the following if statements
+    rotation_constraints = [[int(rotation_constraint) for rotation_constraint in sublist] for sublist in rotation_constraints]
+
+
+
     if isinstance(boxes, np.ndarray):
         boxes = torch.tensor(boxes)
+
     
     device = boxes.device
     batch_size, box_num, _ = boxes.shape
@@ -633,38 +638,40 @@ def generate_box_rotations_torch(boxes, rotation_constraints = None):           
                                                                                                 #       ^
                                                                                                 #       |
                                                                                                 #     Viewer
-    if isinstance(rotation_constraints, torch.Tensor):
-        rotation_constraints = rotation_constraints.long().tolist()
 
 
-    # Case 1: All rotations are allowed
-    # if rotation_constraints is None or rotation_constraints == [[0, 1, 2, 3, 4, 5], [0, 1, 2, 3, 4, 5]]:
-    if rotation_constraints == [[0, 1, 2, 3, 4, 5], [0, 1, 2, 3, 4, 5]]:
+    # Case 1: All rotations are allowed for every box
+    if all(sorted(rotations) == [0, 1, 2, 3, 4, 5] for rotations in rotation_constraints):
         allowed_rot = base_rotations
         num_rot = 6
 
-    elif isinstance(rotation_constraints[0], list) or isinstance(rotation_constraints, torch.Tensor):
-        # Case 2: Same rotation for all boxes
-        if len(rotation_constraints) == 1:
-            r_tensor = base_rotations[rotation_constraints[0]]
-            allowed_rot = r_tensor.unsqueeze(0).expand(box_num, -1, -1)
-            num_rot = allowed_rot.shape[1]
-        else:
-            # Case 3:Individual rotation constraints per box
-            max_rot = max(len(r) for r in rotation_constraints)
-            allowed_rot_list = []
-            for r in rotation_constraints:
-                r_tensor = base_rotations[r]
-                if len(r) < max_rot:
-                    pad = torch.zeros((max_rot - len(r), 3), device = device, dtype = torch.long)            # Padding to [0, 0, 0], to keep the shape the same, so that torch is happy. I am not happy with that, yet
-                    r_tensor = torch.cat([r_tensor, pad], dim = 0)
-                allowed_rot_list.append(r_tensor)
-            allowed_rot = torch.stack(allowed_rot_list, dim = 0)
-            num_rot = allowed_rot.shape[1]
+    # Case 2: Same amount of rotations for all boxes
+    # elif all(sorted(r) == sorted(rotation_constraints[0]) for r in rotation_constraints):
+    elif all(len(r) == len(rotation_constraints[0]) for r in rotation_constraints):
+        # r_tensor = base_rotations[tuple(rotation_constraints[0])]
+        # allowed_rot = r_tensor.unsqueeze(0).expand(box_num, -1, -1)
+        # num_rot = allowed_rot.shape[1]
+
+        r_tensor = [base_rotations[r].unsqueeze(0) for r in rotation_constraints]  
+        allowed_rot = torch.cat(r_tensor, dim = 0)
+        num_rot = allowed_rot.shape[1]
+
+    # elif :                                                                                                # TODO Add functionality for individual box rotations
+    #     # Case 3: Individual rotation constraints per box                                                 # Difficulty: PyTorch does not like unequal amounts of elements in a list line [[1, 2], [0, 4, 5]] 
+    #     max_rot = max(len(r) for r in rotation_constraints)
+    #     allowed_rot_list = []
+    #     for r in rotation_constraints:
+    #         r_tensor = base_rotations[r]
+    #         if len(r) < max_rot:
+    #             pad = torch.zeros((max_rot - len(r), 3), device = device, dtype = torch.long)               # Padding to [0, 0, 0], to keep the shape the same, so that torch is happy. I am not happy with that, yet
+    #             r_tensor = torch.cat([r_tensor, pad], dim = 0)
+    #         allowed_rot_list.append(r_tensor)
+    #     allowed_rot = torch.stack(allowed_rot_list, dim = 0)
+    #     num_rot = allowed_rot.shape[1]
 
     else:
         raise ValueError(
-                f"rotation_constraints must be None, list[float] --> [x, y, z] <--, or list[list[float]] --> [[v, w], [x, y, z]] <--. "
+                f"Illegal rotation constraints were given.\n"
                 f"Got {rotation_constraints}"
             )
 
@@ -720,3 +727,30 @@ class Position_Selection_Old(nn.Module):
         position_logits = self.fully_connected(position_decoding).squeeze(-1)                                   # fully_connected() reduces the transformer output to one score per position (position_logits).
 
         return position_logits
+    
+
+
+'''
+    --- Helper functions ---
+'''
+
+# def ensure_double_list(input):
+#     if isinstance(input, list):
+#         if len(input) == 0 or not isinstance(input[0], list):
+#             return [input]
+#         return input
+
+#     if isinstance(input, np.ndarray):
+#         if input.ndim == 1:
+#             return [input]
+#         elif input.ndim >= 2:
+#             return list(input)
+
+#     if isinstance(input, torch.Tensor):
+#         if input.ndim == 1:
+#             return [input]
+#         elif input.ndim >= 2:
+#             return list(input)
+
+#     return [[input]]
+
