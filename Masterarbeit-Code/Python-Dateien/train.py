@@ -110,27 +110,15 @@ def set_logging(save_name):
     my_path = Path("./log")
     if not my_path.is_dir():
         os.makedirs(my_path)
-    logging.basicConfig(filename=("./log/" + save_name + ".log"),
-                        filemode="a",
+    logging.basicConfig(filename = ("./log/" + save_name + ".log"),
+                        filemode = "a",
                         level = logging.INFO,
                         format="%(asctime)s - %(message)s")                                     # Timestamp and message
-
-
-def set_device():
-    if torch.cuda.is_available():
-        device = torch.device('cuda:0')
-        torch.cuda.empty_cache()
-        print(f"GPU device set to: {str(torch.cuda.get_device_name(device))}")
-    else:
-        print("Device set to: cpu")
-        device = torch.device('cpu')
-    return device
 
 
 if __name__ == '__main__':
 
     params = Parameters()
-    params.device = set_device()
 
     action_queue_list = [Queue(maxsize = 1) for _ in range(params.process_num)]
     result_queue_list = [Queue(maxsize = 1) for _ in range(params.process_num)]
@@ -147,7 +135,8 @@ if __name__ == '__main__':
                                             params.bin_size_ds_y,
                                             params.box_num,
                                             params.min_factor,
-                                            params.max_factor
+                                            params.max_factor,
+                                            params.rotation_constraints
                                         )
                                 )
         process_list.append(process_object)
