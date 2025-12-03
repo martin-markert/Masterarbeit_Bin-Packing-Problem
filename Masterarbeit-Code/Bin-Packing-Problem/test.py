@@ -8,6 +8,7 @@ import plotly.graph_objects as go
 import random
 import torch
 import time
+import os
 
 import multiprocessing as mp
 from multiprocessing import Queue
@@ -50,7 +51,7 @@ def cube_trace(x, y, z, length, width, height, scale, colour):
     return edges, surface
 
 
-def plot_result(packing_result, bin_size_x, bin_size_y):
+def plot_results(packing_result, bin_size_x, bin_size_y, file_name):
     '''
     packing_result: [box1, box2, box3, ...]
     box1:[length, width, height, x, y, z]
@@ -80,14 +81,14 @@ def plot_result(packing_result, bin_size_x, bin_size_y):
     box_height_coordinate = packing_array[:, 2] + packing_array[:, 5]
     max_height = np.max(box_height_coordinate)                                                                  # Find the highest point of all boxes. This will is needed to calculate the bin utilisation in the z direction.
     use_ratio = packing_array[:, :3].prod(1).sum() / (bin_size_x * bin_size_y * max_height)                     # packing_array[:, :3].prod(1).sum(): Sum of products of L/W/H of each box
-    print("[The use ratio is: %.2f %%]"%(use_ratio * 100))
+    # print(f"\nThe use ratio is: {use_ratio * 100:.2f} %")
 
     # Plot result
     traces = []                                                                                                 # List of Plotly objects
     colour_limit_min = 0
     colour_limit_max = 255
     for box in packing_result:
-        colour = (random.randint(colour_limit_min, colour_limit_max),                                                            # RGB values
+        colour = (random.randint(colour_limit_min, colour_limit_max),                                           # RGB values
                   random.randint(colour_limit_min, colour_limit_max),
                   random.randint(colour_limit_min, colour_limit_max)
                 )
@@ -102,48 +103,60 @@ def plot_result(packing_result, bin_size_x, bin_size_y):
 
     figure = go.Figure(data = traces)
 
+    scale_factor = max(bin_size_x, bin_size_y, max_height)
     figure.update_layout(scene = dict(
         xaxis = dict(showbackground = False, color = 'white'),                                                  # Axis lines and ticks turn white. Trying to hide them if not needed
         yaxis = dict(showbackground = False, color = 'white'),
         zaxis = dict(showbackground = False, color = 'white'),
         aspectmode = 'manual',
-        aspectratio = dict(x = bin_size_x,
-                           y = bin_size_y,
-                           z = max_height
+        aspectratio = dict(x = bin_size_x / scale_factor,
+                           y = bin_size_y / scale_factor,
+                           z = max_height / scale_factor
                         )     
                     ),
                     showlegend = False
                 )
+    
+    figure.add_annotation(text = f"{file_name} with use ratio of {use_ratio * 100:.2f} %.",
+                          xref      = "paper",
+                          yref      = "paper",
+                          x         = 0.05,
+                          y         = 0.95,
+                          showarrow = False,
+                          font      = dict(size = 16,
+                                           color = "black"
+                                        )
+                        )
 
-    import os
 
-    file = "plot.html"
+    os.chdir(params.cwd + "/plots")
+    file = file_name + ".html"
     figure.write_html(file)
-    print(os.path.abspath(file))
+    print(f"\n{file_name} plot saved to: {os.path.abspath(file)}")
 
-    # figure.write_html("plot.html")                                                                              # If one works without a GUI that helps seeing the result
+    # figure.write_html("plot.html")                                                                            # If one works without a GUI that helps seeing the result
     figure.show()
 
 
 if __name__ == '__main__':
-    process_num          =         16
-    test_num             =       1024
-    box_num              =        100
-    bin_size_x           =        100
-    bin_size_y           =        100
-    bin_size_z           = 10_000_000
-    bin_size_ds_x        =         10
-    bin_size_ds_y        =         10
-    min_factor           =         0.1
-    max_factor           =         0.5
-    rotation_constraints = params.rotation_constraints
+    process_num              = params.process_num
+    test_num                 = 4
+    box_num                  = params.box_num
+    bin_size_x               = params.bin_size_x
+    bin_size_y               = params.bin_size_y
+    bin_size_z               = params.bin_size_z
+    bin_size_ds_x            = params.bin_size_ds_x
+    bin_size_ds_y            = params.bin_size_ds_y
+    min_factor               = params.min_factor
+    max_factor               = params.max_factor
+    rotation_constraints     = params.rotation_constraints
 
-    load_file_path       = "save/100_100_100_10_0.1_0.5_0/actor.pth"
-    device               = params.set_device()
+    load_file_path           = params.cwd + f"/save/{bin_size_x}_{bin_size_y}_{bin_size_z}_{box_num}_{min_factor}_{max_factor}_0/actor.pth"
+    device                   = params.set_device()
 
-    action_queue_list = [Queue(maxsize = 1) for _ in range(process_num)]
-    result_queue_list = [Queue(maxsize = 1) for _ in range(process_num)]
-    process_list = list()
+    action_queue_list        = [Queue(maxsize = 1) for _ in range(process_num)]
+    result_queue_list        = [Queue(maxsize = 1) for _ in range(process_num)]
+    process_list             = list()
 
     env = Environment(
         bin_size_x           = bin_size_x,
@@ -157,13 +170,16 @@ if __name__ == '__main__':
         rotation_constraints = rotation_constraints
     )
 
-    box_array_list = [Environment.generate_boxes(env, bin_size_x, bin_size_y, min_factor, max_factor, box_num, rotation_constraints) for _ in range(test_num)]
+    box_and_rotation_constraints_array_list = [Environment.generate_boxes(env, bin_size_x, bin_size_y, min_factor, max_factor, box_num, rotation_constraints) for _ in range(test_num)]
+    box_array_list = [boxes for boxes, _ in box_and_rotation_constraints_array_list]
+    rotation_constraints_list = [rotation_constraints for _, rotation_constraints in box_and_rotation_constraints_array_list]
 
     for process_index in range(process_num):
         process_object = mp.Process(target = solve_problem,
                                     args = (action_queue_list[process_index],
                                             result_queue_list[process_index],
                                             box_array_list,
+                                            rotation_constraints_list,
                                             env
                                         )
                                 )
@@ -192,7 +208,7 @@ if __name__ == '__main__':
         for j in range(box_num):
             state = list(map(list, zip(*state_list)))
             state = [torch.as_tensor(np.array(s), dtype = torch.float32, device = device) for s in state]
-            # state[2] = state[2].squeeze(0)                                                                                # Use if [[[...]]] instead of [[...]]
+            # state[2] = state[2].squeeze(0)                                                                    # Use if [[[...]]] instead of [[...]]
 
             ''' See explore_environment_multiprocessing() in agent.py for comments on the following code '''
             action, probabilities = actor.get_action_and_probabilities(state)
@@ -203,7 +219,7 @@ if __name__ == '__main__':
             result_list = list(map(list, zip(*result_list)))
             state_list = result_list[0]
 
-            if result_list[2][0]:                                                                                           # result_x = (state, reward, done, use_ratio)
+            if result_list[2][0]:                                                                               # result_x = (state, reward, done, use_ratio)
                 time_elapsed = time.time() - starting_time
                 # avg_use_ratio = sum(result_list[3]) / process_num
                 use_ratio_list.append(max(result_list[3]))
@@ -213,16 +229,16 @@ if __name__ == '__main__':
 
     use_ratio = sum(use_ratio_list) / test_num
     use_time = total_time / test_num
-    print("average use ratio:", use_ratio)
-    print("average time:", use_time)
+    print(f"\nAverage use ratio: {use_ratio:.2f} %")
+    print(f"Average time: {use_time:.4f} s.")
 
     [process_object.join() for process_object in process_list]
 
-    bestResult = packing_result_list[np.array(use_ratio_list).argmax()]
-    worseResult = packing_result_list[np.array(use_ratio_list).argmin()]
+    best_result = packing_result_list[np.array(use_ratio_list).argmax()]
+    worst_result = packing_result_list[np.array(use_ratio_list).argmin()]
 
-    plot_result(bestResult, bin_size_x, bin_size_y)
-    print("The best use ratio of instances is:%.2f %%" % (max(use_ratio_list)))
+    plot_results(best_result,  bin_size_x, bin_size_y, "Best result")
+    print(f"The best use ratio of instances was: {max(use_ratio_list):.2f} %")
 
-    plot_result(worseResult, bin_size_x, bin_size_y)
-    print("The worse use ratio of instances is:%.2f %%" % (min(use_ratio_list)))
+    plot_results(worst_result, bin_size_x, bin_size_y, "Worst result")
+    print(f"The worst use ratio of instances was: {min(use_ratio_list):.2f} %")
