@@ -1,8 +1,12 @@
+import parameters as p
+
 import numpy as np
 import math
 import copy
 
 import warnings
+
+params = p.Parameters() 
 
 class Environment:                                              # See chapter 4.1
     def __init__(self,
@@ -61,10 +65,7 @@ class Environment:                                              # See chapter 4.
         self.residual_box_num = box_num                 # Amount of boxes that have not been packed (variable value)
 
     # Environment constraints   
-        self.original_bin_heights = np.zeros((self.bin_size_x, self.bin_size_y))                                  # Creates the empty 2D Matrix of the bin with all heights = 0
-        # if bin_height_if_not_start_with_all_zeros is None:
-        #     bin_height_if_not_start_with_all_zeros = np.zeros((self.bin_size_x, self.bin_size_y))
-        # self.original_bin_heights = bin_height_if_not_start_with_all_zeros                                          # TODO: This line is for debugging. Remove those 3 lines later and replace by line above
+        self.original_bin_heights = np.zeros((self.bin_size_x, self.bin_size_y))                                    # Creates the empty 2D Matrix of the bin with all heights = 0
         
         self.original_plane_features = self.get_bin_features(self.original_bin_heights)                             # Calculates the plane-feature matrix
         self.block_size_x = self.bin_size_x // self.bin_size_ds_x                                                   # Size of one downsampling block (cells per block in the x direction) --> Technically “//” is not needed as for the downsampling only divisions with no remainder are allowed
@@ -437,28 +438,22 @@ class Environment:                                              # See chapter 4.
     # --- Done? ---    
 
         if self.residual_box_num == 0 or packing_mask.all():                                                                # No boxes left or nothing can be placed anymore (box full) (as of now the height is unlimited anyways)
+            # print(f"All boxes placed. Reward: {reward_normalised}")
             done = True
         else:
+            # print(f"Not all boxes placed. {self.residual_box_num} boxes left. Reward: {reward_normalised}")
             done = False
         
         return self.state, reward_normalised, done
     
 
-# TODO: Check, whether the dimensions are returned correctly as needed [] or [[]] or [[[]]] ...
-def generate_box_rotations(boxes, rotation_indices = None):                                     # Based on this coordinate system:
-    rotations = np.array([                                                                      # z
-        [0, 1, 2],  # 0: (x, y, z) --> Original State                                           # ^
-        [1, 0, 2],  # 1: (y, x, z) --> Box rotated 90° around the height axis (z)               # |
-        [2, 1, 0],  # 2: (z, y, x) --> Box tipped forward/backward                              # |_____> y
-        [1, 2, 0],  # 3: (y, z, x) --> Box tipped forward/backward and then rotated 90°         #  \
-        [0, 2, 1],  # 4: (x, z, y) --> Box tipped to the left or right                          #   \
-        [2, 0, 1]   # 5: (z, x, y) --> Box tipped to the left or right and then rotated 90°     #    _|
-    ])                                                                                          #      x
-                                                                                                #
-    if rotation_indices is not None:                                                            #       ^
-        rotations = rotations[rotation_indices]                                                 #       |
-                                                                                                #     Viewer
-    return boxes[:, rotations]
+def generate_box_rotations(boxes, rotation_indices = None):
+    base_rotations = params.base_rotations
+    
+    if rotation_indices is not None:
+        base_rotations = base_rotations[rotation_indices]
+
+    return boxes[:, base_rotations]
 
 
 '''
