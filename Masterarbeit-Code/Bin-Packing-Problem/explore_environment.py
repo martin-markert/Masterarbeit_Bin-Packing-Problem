@@ -11,7 +11,7 @@ def explore_environment(action_queue,
                         min_factor,
                         max_factor,
                         rotation_constraints = None,
-                        number_of_iterations = 10
+                        number_of_iterations = 10_000_000_000
                     ):
     
     env = Environment(
@@ -29,14 +29,14 @@ def explore_environment(action_queue,
     number_of_iterations = number_of_iterations * box_num
 
     for _ in range(number_of_iterations):
+        print(f"{_} out of {number_of_iterations} done")
         action = action_queue.get()                                     # Get the action (FIFO)
         if isinstance(action, list):
             action = tuple(action)
         if action is False:                                             # Start new episode
             state = env.reset()
             result_queue.put((state, 0, 0))
-            action = action_queue.get()
-            # print(action)                                               # action = (box_index, position_index, rotation_index)   
+            action = action_queue.get()                                 # action = (box_index, position_index, rotation_index)  
             if isinstance(action, list):
                 action = tuple(action)
         next_state, reward, done = env.step(action)
@@ -47,15 +47,16 @@ def explore_environment(action_queue,
             use_ratio = 0
         result_queue.put((next_state, reward, done, use_ratio))         # Put the result in the result queue
 
-def solve_problem(action_queue, result_queue, box_array_list, env):
-    for box_array in box_array_list:
+def solve_problem(action_queue, result_queue, box_array_list, rotation_constraints_list, env):
+    # for box_array in box_array_list:
+    for box_array, rotation_constraints in zip(box_array_list, rotation_constraints_list):
         done = False
         while not done:
             action = action_queue.get()
             if isinstance(action, list):
                 action = tuple(action)
             if action is False:
-                state = env.reset(box_array)
+                state = env.reset(box_array, rotation_constraints)
                 result_queue.put((state, 0, 0))
                 action = action_queue.get()
                 if isinstance(action, list):
@@ -64,7 +65,7 @@ def solve_problem(action_queue, result_queue, box_array_list, env):
             if done:
                 use_ratio = env.use_ratio
                 packing_result = env.packing_result
-                next_state = env.reset(box_array)
+                next_state = env.reset(box_array, rotation_constraints)
             else:
                 use_ratio = 0
                 packing_result = 0
