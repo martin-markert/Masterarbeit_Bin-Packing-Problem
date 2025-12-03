@@ -80,6 +80,7 @@ class Agent:
                                                                                                     #               ...        ]
         
         for i in range(target_step // process_num):                                                 # The division ensures that each environment contributes approximately target_step / process_num steps.
+            print(f"Explore env: {i} out of {target_step // process_num} done.")
             state = list(map(list, zip(*state_list)))                                               # Transposes the state_list to process all box states together and all bin states together in batches. Then makes it a list
             state[2] = [np.array(state[2][0])]                                                      # Gets rotation_constraints into the right form and removes dimension, that has been added in the line above: [[[...]]] --> [[...]]               
             state = [torch.as_tensor(np.array(s), dtype = torch.float32, device = self.device) for s in state]  # Make state a PyTorch tensor. First NumPy array, to ensure that the data is of a uniform type
