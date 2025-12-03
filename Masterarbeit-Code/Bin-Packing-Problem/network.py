@@ -353,22 +353,6 @@ class Actor(nn.Module):
         packing_mask = (unpacked_boxes_num, 6, bin_size_ds_x, bin_size_ds_y) --> (batch_size, unpacked_boxes_num, 6, bin_size_ds_x, bin_size_ds_y)
 
         Why? To allow starting the environment multiple times in parallel during training — i.e. several environments running simultaneously.
-
-
-
-        Where will this be started?
-
-        probably in the train.py there will be something like this:
-        process_num = 1234567 
-        action_queue_list = [Queue(maxsize=1) for _ in range(process_num)]
-        result_queue_list = [Queue(maxsize=1) for _ in range(process_num)]
-        
-        state = list(map(list, zip(*state_list)))
-
-        And the Agent will use something like this:
-        result_list = [result_queue.get() for result_queue in result_queue_list]
-        state_list = [result[0] for result in result_list]
-
         '''
 
         # Shall be torch.tensors (at least for flatten() to work)
@@ -440,8 +424,6 @@ class Actor(nn.Module):
             rotation_index = torch.as_tensor(action_old[2], dtype = torch.int64).to(device)                     # action_old is a tuple: (box_index, position_index, rotation_index)
         else:
             rotation_index = torch.multinomial(rotation_probabilities, num_samples = 1, replacement = True).squeeze(-1)
-        
-        # rotation_index = torch.multinomial(rotation_probabilities, num_samples = 1, replacement = True).squeeze(-1) # <-- Or maybe always choose the rotation deterministically for simplicity reasons? position_index and box_index --> important policy decisions, deterministic adoption for log probability. rotation_index --> relatively “local” decision, stochastic, covered later by log probability.
 
         probabilities = (box_index_probabilities, position_index_probabilities, rotation_probabilities)         # Softmax probabilities for positions, boxes, and rotations
         action = (box_index, position_index, rotation_index)                                                    # Indices of the selected position, box and its rotation
@@ -554,29 +536,12 @@ class Box_Selection_Without_Plane_Features(nn.Module):                          
     --- Additional helping functions ---
 '''
 
-# def convert_decimal_tensor_to_binary_new_but_not_working(tensor, bit_length):                                   # Why can this conversion of tensors to binary be useful? It stabilises the input
-#     tensor = tensor.long()                                                                                      # Safety machanism so that (tensor & mask) work for sure
-#     max_val = 2 ** bit_length - 1                                                                               # Instead of specifying large values (e.g. width = 90) directly as scalars, they are passed as n-bit vectors (e.g. [0, 1, 0, 1, 1, 0, 1, 0]).
-#     if (tensor > max_val).any():                                                                                # This stabilises training, prevents large number ranges and allows the transformer to recognise bitwise patterns.
-#         warnings.warn(                                                                                          # TODO: Truncates from the left, if bit_length is too small. Problem?
-#             f"At convert_tensor_to_binary() values in x are truncated to {bit_length} bits. "
-#             f"Maximum representable decimal value: {max_val}", 
-#             UserWarning
-#         )
-#     # mask = 2 ** torch.arange(bit_length - 1, -1, -1, device = tensor.device, dtype = tensor.dtype)
-#     mask = (2 ** torch.arange(bit_length - 1, -1, -1, device=tensor.device)).long()
-    
-#     tensor_expanded = tensor.unsqueeze(-1)
-#     tensor_bin = (tensor_expanded & mask) != 0
-#     return tensor_bin.int()
-
-
 def convert_decimal_tensor_to_binary(tensor, bit_length):
     
     max_val = 2 ** bit_length - 1                                                                               # Instead of specifying large values (e.g. width = 90) directly as scalars, they are passed as n-bit vectors (e.g. [0, 1, 0, 1, 1, 0, 1, 0]).
     if (tensor > max_val).any():                                                                                # This stabilises training, prevents large number ranges and allows the transformer to recognise bitwise patterns.
         warnings.warn(                                                                                          # TODO: Truncates from the left, if bit_length is too small. Problem?
-            f"At convert_tensor_to_binary() values in x are truncated to {bit_length} bits.\n"
+            f"At convert_tensor_to_binary() values in tensor are truncated to {bit_length} bits.\n"
             f"The maximum representable decimal value with {bit_length} bits is {max_val}.\n"
             f"The given tensor has at least one value larger than {max_val}:\n{tensor}", 
             UserWarning
@@ -615,7 +580,10 @@ def generate_box_rotations(boxes, rotation_constraints = None):                 
                                                                                                                 # It should be documented that these rotations are interpreted as invalid.
     
     rotation_constraints = rotation_constraints.squeeze(0).tolist()                                             # Make the shape so it is compatible woth the following if statements
+    if np.array(rotation_constraints).ndim == 3:
+        rotation_constraints = rotation_constraints[0]
     rotation_constraints = [[int(rotation_constraint) for rotation_constraint in sublist] for sublist in rotation_constraints]
+
 
 
 
@@ -625,28 +593,15 @@ def generate_box_rotations(boxes, rotation_constraints = None):                 
     
     device = boxes.device
     batch_size, box_num, _ = boxes.shape
-                                                                                                # Based on this coordinate system:
-    base_rotations = torch.tensor([                                                             # z
-        [0, 1, 2],  # 0: (x, y, z) --> Original State                                           # ^
-        [1, 0, 2],  # 1: (y, x, z) --> Box rotated 90° around the height axis (z)               # |
-        [2, 1, 0],  # 2: (z, y, x) --> Box tipped forward/backward                              # |_____> y
-        [1, 2, 0],  # 3: (y, z, x) --> Box tipped forward/backward and then rotated 90°         #  \
-        [0, 2, 1],  # 4: (x, z, y) --> Box tipped to the left or right                          #   \
-        [2, 0, 1]   # 5: (z, x, y) --> Box tipped to the left or right and then rotated 90°     #    _|
-    ], device = device, dtype = torch.long)                                                     #      x
-                                                                                                #
-                                                                                                #       ^
-                                                                                                #       |
-                                                                                                #     Viewer
-
+    
+    base_rotations = torch.tensor(params.base_rotations, device = device, dtype = torch.long)
 
     # Case 1: All rotations are allowed for every box
     if all(sorted(rotations) == [0, 1, 2, 3, 4, 5] for rotations in rotation_constraints):
         allowed_rot = base_rotations
         num_rot = 6
 
-    # Case 2: Same amount of rotations for all boxes
-    # elif all(sorted(r) == sorted(rotation_constraints[0]) for r in rotation_constraints):
+    # Case 2: Same amount of rotations for all boxes, but not necessarily all the boxes have the same allowed rotations
     elif all(len(r) == len(rotation_constraints[0]) for r in rotation_constraints):
         # r_tensor = base_rotations[tuple(rotation_constraints[0])]
         # allowed_rot = r_tensor.unsqueeze(0).expand(box_num, -1, -1)
@@ -655,15 +610,15 @@ def generate_box_rotations(boxes, rotation_constraints = None):                 
         r_tensor = [base_rotations[r].unsqueeze(0) for r in rotation_constraints]  
         allowed_rot = torch.cat(r_tensor, dim = 0)
         num_rot = allowed_rot.shape[1]
-
-    # elif :                                                                                                # TODO Add functionality for individual box rotations
-    #     # Case 3: Individual rotation constraints per box                                                 # Difficulty: PyTorch does not like unequal amounts of elements in a list line [[1, 2], [0, 4, 5]] 
+    # Case 3: Individual rotation constraints per box 
+    # elif ():                                                                                                  # TODO Add functionality for individual box rotations
+    #                                                                                                           # Difficulty: PyTorch does not like unequal amounts of elements in a list line [[1, 2], [0, 4, 5]] 
     #     max_rot = max(len(r) for r in rotation_constraints)
     #     allowed_rot_list = []
     #     for r in rotation_constraints:
     #         r_tensor = base_rotations[r]
     #         if len(r) < max_rot:
-    #             pad = torch.zeros((max_rot - len(r), 3), device = device, dtype = torch.long)               # Padding to [0, 0, 0], to keep the shape the same, so that torch is happy. I am not happy with that, yet
+    #             pad = torch.zeros((max_rot - len(r), 3), device = device, dtype = torch.long)                 # Padding to [0, 0, 0], to keep the shape the same, so that torch is happy. I am not happy with that, yet
     #             r_tensor = torch.cat([r_tensor, pad], dim = 0)
     #         allowed_rot_list.append(r_tensor)
     #     allowed_rot = torch.stack(allowed_rot_list, dim = 0)
@@ -727,30 +682,3 @@ class Position_Selection_Old(nn.Module):
         position_logits = self.fully_connected(position_decoding).squeeze(-1)                                   # fully_connected() reduces the transformer output to one score per position (position_logits).
 
         return position_logits
-    
-
-
-'''
-    --- Helper functions ---
-'''
-
-# def ensure_double_list(input):
-#     if isinstance(input, list):
-#         if len(input) == 0 or not isinstance(input[0], list):
-#             return [input]
-#         return input
-
-#     if isinstance(input, np.ndarray):
-#         if input.ndim == 1:
-#             return [input]
-#         elif input.ndim >= 2:
-#             return list(input)
-
-#     if isinstance(input, torch.Tensor):
-#         if input.ndim == 1:
-#             return [input]
-#         elif input.ndim >= 2:
-#             return list(input)
-
-#     return [[input]]
-
