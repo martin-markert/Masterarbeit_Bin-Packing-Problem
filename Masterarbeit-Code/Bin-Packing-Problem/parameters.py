@@ -12,15 +12,16 @@ class Parameters():
         self.cwd           = "/home/markert/Masterarbeit-Code/Trainings"    # Current working directory     
         self.load_step     =          0
         self.random_seed   = np.random.randint(0, 2**32)
-        self.num_threads   =          4                             # Determines how many GPU/CPU threads PyTorch uses internally
+        self.num_threads   =          8                             # Determines how many CPU threads PyTorch uses internally (use as many as there are CPU cores)
 
 
 
         '''
         Arguments for train.py
         '''
-        self.break_step    =          2 ** 30
-        self.process_num   =          4                             # Shall not be more than CPU kernels available
+        self.break_step    =          2**30                        # Maximum number of total training environment steps after which training stops
+        self.process_num   =          8                             # How many parallel processes, each with its own environment? Must not be more than CPU kernels available. step() and reset() are running in the CPU, so this is the important parameter. The model itself is in the GPU but there is only one
+                                                                    # Leads to a model that utilises all experiences from the process_num parallel processes, which are merged in explore_environment_multiprocessing().
 
 
         '''
@@ -37,7 +38,6 @@ class Parameters():
         self.rotation_constraints = None                           # [[0, 1], [5], [0, 4, 2], [1, 2], [0, 1, 2, 3, 4, 5]]
 
         self.save_dir    = "{:d}_{:d}_{:d}_{:d}_{:.1f}_{:.1f}".format(self.bin_size_x, self.bin_size_y, self.bin_size_z, self.box_num, self.min_factor, self.max_factor)
-
 
         '''
         Arguments of the transformer-related things (network.py)
@@ -61,9 +61,8 @@ class Parameters():
             [0, 2, 1],  # 4: (x, z, y) --> Box tipped to the left or right                          #  \
             [2, 0, 1]   # 5: (z, x, y) --> Box tipped to the left or right and then rotated 90°     #    _|
         ])                                                                                          #      x
-                                                                                                    #      ^
-                                                                                                    #      |
-                                                                                                    #    Viewer
+                                                                                                    #    ↑
+                                                                                                    #  Viewer
         
         
         ''' Box_Embed() '''                                                 # See chapter 3.1.3 --> Box encoder
@@ -108,33 +107,33 @@ class Parameters():
 
         self.learning_rate_actor              =    1e-5                     # As in chapter 4.1
         self.learning_rate_critic             =    1e-4                     # As in chapter 4.1
-        self.target_step                      = 1000                        # The agent acts target_step time steps in the environment --> The more boxes, the higher the number shall be
+        self.target_step                      = 1000                        # The agent acts target_step time steps in the environment before model is updated. Small target_step --> many updates --> potentially unstable training. Large target_step --> fewer updates --> potentially more stable, but slower --> The more boxes, the higher the number shall be
         self.reward_scale                     =    1 
         self.discount_factor                  =    0.99                     # As in chapter 4.1 (looking more into the future the higher this value is)
-        self.repeat_times                     =    8                        # How often random batches are generated from the same buffer before new data is collected.
+        self.repeat_times                     =    2                        # How often random batches are generated from the same buffer before new data is collected.
 
 
     def initialise(self):
 
         os.chdir(self.cwd)
         
-        if not os.path.exists("save"):                                      # Is there a folder to safe the stuff? No? Well then let's create one
-            os.makedirs("save")
+        if not os.path.exists("saves"):                                     # Is there a folder to safe the stuff? No? Well then let's create one
+            os.makedirs("saves")
 
         save_index = 0                                                      # Numbering of training runs
         while True:
             save_dir = self.save_dir + "_{}".format(save_index)             # Sequential numbering of file names
 
-            if not os.path.exists("save/" + save_dir):
+            if not os.path.exists("saves/" + save_dir):
                 if save_index == 0:                                         # No previous model to load
                     self.load_model = False
                     print("No save file available. load_model is set to False")
                 if self.load_model:
                     save_dir = self.save_dir + "_{}".format(save_index - 1)
                 else:
-                    os.makedirs("save/" + save_dir)
+                    os.makedirs("saves/" + save_dir)
                 self.save_dir = save_dir
-                self.cwd = "./" + "save/" + save_dir + "/"
+                self.cwd = "./" + "saves/" + save_dir + "/"
                 if self.load_model:
                     with open(self.cwd + "last_step.txt","r") as f:
                         self.load_step = int(f.read())
@@ -143,8 +142,8 @@ class Parameters():
             else:
                 save_index += 1
 
-        np.random.seed(self.random_seed)                                    # Sets a fixed seed to make transfomer deterministic
-        torch.manual_seed(self.random_seed)                                 # Same for PyTorch
+        np.random.seed(self.random_seed)                                    # Sets a fixed seed to make transfomer deterministic. All random numbers generated via np.random follow a fixed sequence.
+        torch.manual_seed(self.random_seed)                                 # Same for PyTorch with torch.rand
         torch.set_num_threads(self.num_threads)                             # Determines how many CPU threads PyTorch uses internally
         torch.set_default_dtype(torch.float32)                              # Sets the default data type for newly created tensors to float32. This can be useful for controlling memory consumption and consistency in model training.
 
