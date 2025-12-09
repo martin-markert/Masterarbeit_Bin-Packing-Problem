@@ -1,6 +1,6 @@
 from environment import Environment
 
-def explore_environment(action_queue,
+def explore_environment(action_queue,                                   # This is basically "just" there to collect the data. No training, no actor/critic. Does the step(action) and returns its results
                         result_queue,
                         bin_size_x,
                         bin_size_y,
@@ -26,10 +26,10 @@ def explore_environment(action_queue,
         rotation_constraints = rotation_constraints
     )
 
-    number_of_iterations = number_of_iterations * box_num
+    number_of_iterations = number_of_iterations * box_num               # Basically an artificially inflated number so that this limit is never reached in normal training.
 
     for _ in range(number_of_iterations):
-        print(f"{_} out of {number_of_iterations} done")
+        print(f"explore_environment: {_} out of {number_of_iterations} done")
         action = action_queue.get()                                     # Get the action (FIFO)
         if isinstance(action, list):
             action = tuple(action)
