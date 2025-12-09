@@ -52,7 +52,7 @@ def train_and_evaluate(params, action_queue_list, result_queue_list):
     del params                                                                                  # memory clean-up
 
     while evaluator.total_steps < break_step:
-        print(f"{evaluator.total_steps} out of {break_step}")
+        print(f"Training: {evaluator.total_steps} out of max. {break_step} steps")
         start_time_explore_environment = time.time()
         with torch.no_grad():
             trajectory_list = agent.explore_environment_multiprocessing(action_queue_list,
@@ -73,7 +73,7 @@ def train_and_evaluate(params, action_queue_list, result_queue_list):
         print(f"Time used for updating actor and critic (update_net): {int(time.time() - start_time_update_net)} second{'s' if int(time.time() - start_time_update_net) != 1 else ''}")
 
         evaluator.tensorboard_writer(average_reward, logging_tuple, agent.use_ratio_avg, writer)# TensorBoard & Logging
-    print("done")
+    print(f"Done with the training. Trained for {break_step} steps.")
 
 
 class Evaluator:                                                                                # Used to save the best model during training and record training metrics for TensorBoard and log files.
@@ -81,9 +81,13 @@ class Evaluator:                                                                
                  cwd
                 ):
                 
-        self.max_goal = -np.inf
         self.total_steps = 0
         self.cwd = cwd
+        self.max_goal = self.get_max_goal_so_far()
+
+        print(f"\n\nmax_goal: {self.max_goal}\n\n")
+        import time
+        time.sleep(20)
      
 
     def save_model_if_it_is_better(self, actor, critic, expected_goal):                         # Saves if the current performance is better:
@@ -92,6 +96,9 @@ class Evaluator:                                                                
             torch.save(actor.state_dict(), f'{self.cwd}/actor.pth')                             # Save the policy network in *.pth
             torch.save(critic.state_dict(), f'{self.cwd}/critic.pth')
             logging.info(f"{self.total_steps:12} {self.max_goal:12.2f}")                        # Save the policy and print avlues. ONLY if the model is better than the previously best one
+
+            with open(f"{self.cwd}/max_goal.txt", "w") as max_goal_file:                        # Write new max_goal value into max_goal.txt
+                max_goal_file.write(str(self.max_goal))
 
 
     def tensorboard_writer(self, expected_return, log_tuple, expected_goal, writer):            # Writes training metrics to TensorBoard and the log:
@@ -106,6 +113,17 @@ class Evaluator:                                                                
             f.write("{}".format(self.total_steps))
 
 
+    def get_max_goal_so_far(self):                                                              # This ensures that even after the training is interrupted and later resumed, the max_goal value remains stored, as otherwise it would not be saved when training is resumed.
+        max_goal_file = os.path.join(self.cwd, "max_goal.txt")
+        if os.path.exists(max_goal_file):
+            with open(max_goal_file, "r") as f:
+                max_goal_so_far = float(f.read().strip())
+                logging.info(f"Best maxGoal from previous trainings: {max_goal_so_far:.2f}")
+        else:
+            max_goal_so_far = -np.inf
+        return max_goal_so_far
+
+
 # Helper functions
 def set_logging(save_name):
     my_path = Path("./log")
@@ -114,15 +132,16 @@ def set_logging(save_name):
     logging.basicConfig(filename = ("./log/" + save_name + ".log"),
                         filemode = "a",
                         level = logging.INFO,
-                        format="%(asctime)s - %(message)s")                                     # Timestamp and message
+                        format = "%(asctime)s: %(message)s")                                     # Timestamp and message
 
 
 if __name__ == '__main__':
 
     params = Parameters()
 
-    action_queue_list = [Queue(maxsize = 1) for _ in range(params.process_num)]
-    result_queue_list = [Queue(maxsize = 1) for _ in range(params.process_num)]
+    action_queue_list = [Queue(maxsize = 1) for _ in range(params.process_num)]                 # process_num parallel processes, each with its own environment
+    result_queue_list = [Queue(maxsize = 1) for _ in range(params.process_num)]                 # Each process produces a transition per iteration (state, action, reward, next_state, done). 
+                                                                                                # explore_environment_multiprocessing() in train_and_evaluate() combines all processes and turns them into a joint training session.
     process_list = list()
 
     for process_index in range(params.process_num):
@@ -142,6 +161,6 @@ if __name__ == '__main__':
                                 )
         process_list.append(process_object)
 
-    [process_object.start() for process_object in process_list]
+    [process_object.start() for process_object in process_list]                             # start() make the process "alive"
 
     train_and_evaluate(params, action_queue_list, result_queue_list)
