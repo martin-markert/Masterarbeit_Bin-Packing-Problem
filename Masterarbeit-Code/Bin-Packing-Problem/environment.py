@@ -438,10 +438,8 @@ class Environment:                                              # See chapter 4.
     # --- Done? ---    
 
         if self.residual_box_num == 0 or packing_mask.all():                                                                # No boxes left or nothing can be placed anymore (box full) (as of now the height is unlimited anyways)
-            # print(f"All boxes placed. Reward: {reward_normalised}")
             done = True
         else:
-            # print(f"Not all boxes placed. {self.residual_box_num} boxes left. Reward: {reward_normalised}")
             done = False
         
         return self.state, reward_normalised, done
