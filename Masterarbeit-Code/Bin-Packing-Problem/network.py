@@ -553,14 +553,21 @@ def convert_decimal_tensor_to_binary(tensor, bit_length):
     if bit_length == 1:
         tensor_encoding = tensor
     else:
-        binary_list = []
-        divide = tensor
-        for _ in range(bit_length):
-            binary = divide % 2
-            binary_list.insert(0, binary)
-            divide = torch.div(divide, 2, rounding_mode = 'trunc')
+        # Do on CPU
+        # binary_list = []
+        # divide = tensor
+        # for _ in range(bit_length):
+        #     binary = divide % 2
+        #     binary_list.insert(0, binary)
+        #     divide = torch.div(divide, 2, rounding_mode = 'trunc')
 
-        tensor_encoding = torch.stack(binary_list, -1).flatten(-2, -1)
+        # tensor_encoding = torch.stack(binary_list, -1).flatten(-2, -1)
+
+        # Do on GPU
+        tensor = tensor.to(torch.int64)
+        powers = (2 ** torch.arange(bit_length - 1, -1, -1, device = tensor.device)).to(torch.int64)
+        binary = ((tensor.unsqueeze(-1) // powers) % 2).to(torch.float32)
+        tensor_encoding = binary.flatten(-2, -1)
     return tensor_encoding
 
 
