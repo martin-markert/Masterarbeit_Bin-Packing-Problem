@@ -51,7 +51,7 @@ def cube_trace(x, y, z, length, width, height, scale, colour):
     return edges, surface
 
 
-def plot_results(packing_result, bin_size_x, bin_size_y, file_name):
+def plot_results(packing_result, bin_size_x, bin_size_y, parameters, file_name):
     '''
     packing_result: [box1, box2, box3, ...]
     box1:[length, width, height, x, y, z]
@@ -130,7 +130,7 @@ def plot_results(packing_result, bin_size_x, bin_size_y, file_name):
 
 
     os.chdir(params.cwd + "/plots")
-    file = file_name + ".html"
+    file = parameters + " " + file_name + ".html"
     figure.write_html(file)
     print(f"\n{file_name} plot saved to: {os.path.abspath(file)}")
 
@@ -151,7 +151,7 @@ if __name__ == '__main__':
     max_factor               = params.max_factor
     rotation_constraints     = params.rotation_constraints
 
-    load_file_path           = params.cwd + f"/save/{bin_size_x}_{bin_size_y}_{bin_size_z}_{box_num}_{min_factor}_{max_factor}_0/actor.pth"
+    load_file_path           = params.cwd + f"/saves/{bin_size_x}_{bin_size_y}_{bin_size_z}_{box_num}_{min_factor}_{max_factor}_0/actor.pth"
     device                   = params.set_device()
 
     action_queue_list        = [Queue(maxsize = 1) for _ in range(process_num)]
@@ -170,6 +170,7 @@ if __name__ == '__main__':
         rotation_constraints = rotation_constraints
     )
 
+    box_and_rotation_constraints_array_list = None                                                              # Hard-coded boxes and rotation_constraints for constant tests
     box_and_rotation_constraints_array_list = [Environment.generate_boxes(env, bin_size_x, bin_size_y, min_factor, max_factor, box_num, rotation_constraints) for _ in range(test_num)]
     box_array_list = [boxes for boxes, _ in box_and_rotation_constraints_array_list]
     rotation_constraints_list = [rotation_constraints for _, rotation_constraints in box_and_rotation_constraints_array_list]
@@ -211,10 +212,10 @@ if __name__ == '__main__':
             # state[2] = state[2].squeeze(0)                                                                    # Use if [[[...]]] instead of [[...]]
 
             ''' See explore_environment_multiprocessing() in agent.py for comments on the following code '''
-            action, probabilities = actor.get_action_and_probabilities(state)
+            action, _ = actor.get_action_and_probabilities(state)
             action_list = np.array([action.detach().cpu().numpy() for action in action]).transpose()
             action_int_list = action_list.tolist()
-            [action_queue_list[process_index].put(action_int_list[process_index]) for process_index in range(process_num)]
+            [action_queue_list[process_index].put(action_int_list[process_index]) for process_index in range(process_num)]  # Queue.put() needs CPU
             result_list = [result_queue.get() for result_queue in result_queue_list]
             result_list = list(map(list, zip(*result_list)))
             state_list = result_list[0]
@@ -237,8 +238,8 @@ if __name__ == '__main__':
     best_result = packing_result_list[np.array(use_ratio_list).argmax()]
     worst_result = packing_result_list[np.array(use_ratio_list).argmin()]
 
-    plot_results(best_result,  bin_size_x, bin_size_y, "Best result")
+    plot_results(best_result,  bin_size_x, bin_size_y, f"{bin_size_x}_{bin_size_y}_{bin_size_z}_{box_num}_{min_factor}_{max_factor}_0", "Best result")
     print(f"The best use ratio of instances was: {max(use_ratio_list):.2f} %")
 
-    plot_results(worst_result, bin_size_x, bin_size_y, "Worst result")
+    plot_results(worst_result, bin_size_x, bin_size_y, f"{bin_size_x}_{bin_size_y}_{bin_size_z}_{box_num}_{min_factor}_{max_factor}_0", "Worst result")
     print(f"The worst use ratio of instances was: {min(use_ratio_list):.2f} %")
