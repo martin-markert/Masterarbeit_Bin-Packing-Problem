@@ -19,7 +19,7 @@ class Parameters():
         '''
         Arguments for train.py
         '''
-        self.break_step           =       800                      # Maximum number of total training environment steps after which training stops
+        self.break_step           =       2**30                     # Maximum number of total training environment steps after which training stops
         self.process_num          = os.cpu_count()                  # How many parallel processes, each with its own environment? Must not be more than CPU kernels available. step() and reset() are running in the CPU, so this is the important parameter. The model itself is in the GPU but there is only one
                                                                     # Leads to a model that utilises all experiences from the process_num parallel processes, which are merged in explore_environment_multiprocessing().
 
