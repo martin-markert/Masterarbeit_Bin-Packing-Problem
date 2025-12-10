@@ -147,8 +147,8 @@ class Parameters():
                     with open(self.cwd + "last_step.txt","r") as last_step_file:
                         self.load_step = int(last_step_file.read())
                         print(f"Resuming training at step: {self.load_step}")
-                        import logging
-                        logging.info(f"Resuming training at step: {self.load_step}")
+                        # import logging
+                        # logging.info(f"Resuming training at step: {self.load_step}")
                 break
             else:
                 save_index += 1
