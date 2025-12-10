@@ -159,3 +159,4 @@ if __name__ == '__main__':
     [process_object.start() for process_object in process_list]                             # start() makes the process "alive"
 
     train_and_evaluate(params, action_queue_list, result_queue_list)
+    exit(0)
