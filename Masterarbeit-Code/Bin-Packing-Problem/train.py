@@ -158,5 +158,17 @@ if __name__ == '__main__':
 
     [process_object.start() for process_object in process_list]                             # start() makes the process "alive"
 
-    train_and_evaluate(params, action_queue_list, result_queue_list)
-    exit(0)
+    try:
+        train_and_evaluate(params, action_queue_list, result_queue_list)
+    finally:
+        # End all Queues
+        for queue in action_queue_list + result_queue_list:
+            queue.close()
+            queue.join_thread()
+        
+        # End all processes
+        for process in process_list:
+            process.terminate()
+            process.join()
+
+    os._exit(0)                                                                             # Not really needed, just in case something goes wrong

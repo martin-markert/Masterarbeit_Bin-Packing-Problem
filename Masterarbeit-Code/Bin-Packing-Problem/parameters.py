@@ -12,15 +12,15 @@ class Parameters():
         self.cwd           = "/home/markert/Masterarbeit-Code/Trainings"    # Current working directory     
         self.load_step     =              0
         self.random_seed   = np.random.randint(0, 2**32)
-        self.num_threads   =              8                         # Determines how many CPU threads PyTorch uses internally (use as many as there are CPU cores)
+        self.num_threads   = os.cpu_count()                         # Determines how many CPU threads PyTorch uses internally (use as many as there are CPU cores)
 
 
 
         '''
         Arguments for train.py
         '''
-        self.break_step           =       2**30                     # Maximum number of total training environment steps after which training stops
-        self.process_num          =       8                         # How many parallel processes, each with its own environment? Must not be more than CPU kernels available. step() and reset() are running in the CPU, so this is the important parameter. The model itself is in the GPU but there is only one
+        self.break_step           =       800                      # Maximum number of total training environment steps after which training stops
+        self.process_num          = os.cpu_count()                  # How many parallel processes, each with its own environment? Must not be more than CPU kernels available. step() and reset() are running in the CPU, so this is the important parameter. The model itself is in the GPU but there is only one
                                                                     # Leads to a model that utilises all experiences from the process_num parallel processes, which are merged in explore_environment_multiprocessing().
 
 
@@ -41,7 +41,7 @@ class Parameters():
         self.bin_size_z           = 100_000                         # <-- As for now it can be anything
         self.bin_size_ds_x        =      10                         # Like in the paper (ds = downsampled)
         self.bin_size_ds_y        =      10                         # Like in the paper
-        self.box_num              =     100                         # <-- Whatever your heart desires
+        self.box_num              =      50                         # Like in the paper
         self.min_factor           =       0.1                       # Like in the paper (In the paper they divide by 10, I don't, I multiply by 1/10)
         self.max_factor           =       0.5                       # Like in the paper
         self.rotation_constraints = None                            # [[0, 1], [5], [0, 4, 2], [1, 2], [0, 1, 2, 3, 4, 5]]
