@@ -18,7 +18,7 @@ def train_and_evaluate(params, action_queue_list, result_queue_list):
 
 # Agent stuff
     save_dir = params.save_dir                                                                  # Folder for TensorBoard checkpoints
-    writer = SummaryWriter("runs/" + save_dir)
+    writer = SummaryWriter("runs/" + save_dir)                                                  # Creates "runs" folder automatically
     set_logging(save_dir)
 
     logging.info(f"{'Step':>12} {'maxGoal':>12} {'expReturn':>12} {'expGoal':>12} {'CriticLoss':>12} {'ActorLoss':>12} {'LogProb':>12}")
@@ -65,12 +65,12 @@ def train_and_evaluate(params, action_queue_list, result_queue_list):
             evaluator.total_steps += steps
             evaluator.save_model_if_it_is_better(agent.actor, agent.critic, agent.use_ratio_avg)
 
-        print(f"Time used for exploring the environment: {int(time.time() - start_time_explore_environment)} second{'s' if int(time.time() - start_time_explore_environment) != 1 else ''}")
+        logging.info(f"Time used for exploring the environment: {int(time.time() - start_time_explore_environment)} second{'s' if int(time.time() - start_time_explore_environment) != 1 else ''}")
 
         start_time_update_net = time.time()
         logging_tuple = agent.update_net(buffer, batch_size, repeat_times)
 
-        print(f"Time used for updating actor and critic (update_net): {int(time.time() - start_time_update_net)} second{'s' if int(time.time() - start_time_update_net) != 1 else ''}")
+        logging.info(f"Time used for updating actor and critic (update_net): {int(time.time() - start_time_update_net)} second{'s' if int(time.time() - start_time_update_net) != 1 else ''}")
 
         evaluator.tensorboard_writer(average_reward, logging_tuple, agent.use_ratio_avg, writer)# TensorBoard & Logging
     print(f"Done with the training. Trained for {break_step} steps.")
@@ -85,11 +85,7 @@ class Evaluator:                                                                
         self.cwd = cwd
         self.max_goal = self.get_max_goal_so_far()
 
-        print(f"\n\nmax_goal: {self.max_goal}\n\n")
-        import time
-        time.sleep(20)
      
-
     def save_model_if_it_is_better(self, actor, critic, expected_goal):                         # Saves if the current performance is better:
         if expected_goal > self.max_goal:
             self.max_goal = expected_goal
@@ -127,8 +123,7 @@ class Evaluator:                                                                
 # Helper functions
 def set_logging(save_name):
     my_path = Path("./log")
-    if not my_path.is_dir():
-        os.makedirs(my_path)
+    my_path.mkdir(parents = True, exist_ok = True)
     logging.basicConfig(filename = ("./log/" + save_name + ".log"),
                         filemode = "a",
                         level = logging.INFO,
@@ -161,6 +156,19 @@ if __name__ == '__main__':
                                 )
         process_list.append(process_object)
 
-    [process_object.start() for process_object in process_list]                             # start() make the process "alive"
+    [process_object.start() for process_object in process_list]                             # start() makes the process "alive"
 
-    train_and_evaluate(params, action_queue_list, result_queue_list)
+    try:
+        train_and_evaluate(params, action_queue_list, result_queue_list)
+    finally:
+        # End all Queues
+        for queue in action_queue_list + result_queue_list:
+            queue.close()
+            queue.join_thread()
+        
+        # End all processes
+        for process in process_list:
+            process.terminate()
+            process.join()
+
+    os._exit(0)                                                                             # Not really needed, just in case something goes wrong
