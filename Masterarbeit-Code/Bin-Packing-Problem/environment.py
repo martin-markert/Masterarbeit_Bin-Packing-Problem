@@ -457,9 +457,9 @@ def generate_box_rotations(boxes, rotation_indices = None):
 '''
     Auxiliary function
 '''
-def contains_empty_list(lst):
-    if not isinstance(lst, list):
+def contains_empty_list(input):
+    if not isinstance(input, list):
         return False
-    if lst == []:
+    if input == []:
         return True
-    return any(contains_empty_list(i) for i in lst)
+    return any(contains_empty_list(i) for i in input)
