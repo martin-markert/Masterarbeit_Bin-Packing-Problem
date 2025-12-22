@@ -8,34 +8,43 @@ class Parameters():
         '''
         Arguments for initialise(self)
         '''
-        self.load_model    = True
-        self.cwd           = "/home/markert/Masterarbeit-Code/Trainings"    # Current working directory     
-        self.load_step     =          0
-        self.random_seed   = np.random.randint(0, 2**32)
-        self.num_threads   =          8                             # Determines how many CPU threads PyTorch uses internally (use as many as there are CPU cores)
+        self.load_model           = True                            # Keep training the existimg model with the same bin/box parameters or start a new training?
+        self.cwd                  = "/home/markert/Masterarbeit-Code/Trainings/Hauptmodell 100x100"    # Current working directory     
+        self.load_step            =       0
+        self.random_seed          = np.random.randint(0, 2**32)
+        self.num_threads          = os.cpu_count()                  # Determines how many CPU threads PyTorch uses internally (use as many as there are CPU cores)
 
 
 
         '''
         Arguments for train.py
         '''
-        self.break_step    =          2**30                        # Maximum number of total training environment steps after which training stops
-        self.process_num   =          8                             # How many parallel processes, each with its own environment? Must not be more than CPU kernels available. step() and reset() are running in the CPU, so this is the important parameter. The model itself is in the GPU but there is only one
+        self.break_step           =       2**30                     # Maximum number of total training environment steps after which training stops
+        self.process_num          = os.cpu_count()                  # How many parallel processes, each with its own environment? Must not be more than CPU kernels available. step() and reset() are running in the CPU, so this is the important parameter. The model itself is in the GPU but there is only one
                                                                     # Leads to a model that utilises all experiences from the process_num parallel processes, which are merged in explore_environment_multiprocessing().
+
+
+
+        '''
+        Arguments for train.py
+        '''
+        self.amount_of_test_runs  =    20                         # How many times should the model be tested
+        self.model_version_number =       0                         # Relevant, if there are multiple models with the same bin/box parameters
+
 
 
         '''
         Arguments for the Environment as stated in chapter 4.1
         '''
-        self.bin_size_x    =       100                             # Like in the paper
-        self.bin_size_y    =       100                             # Like in the paper
-        self.bin_size_z    =   100_000                             # <-- As for now it can be anything
-        self.bin_size_ds_x =        10                             # Like in the paper (ds = downsampled)
-        self.bin_size_ds_y =        10                             # Like in the paper
-        self.box_num       =       100                             # <-- Whatever your heart desires
-        self.min_factor    =         0.1                           # Like in the paper (In the paper they divide by 10, I don't, I multiply by 1/10)
-        self.max_factor    =         0.5                           # Like in the paper
-        self.rotation_constraints = None                           # [[0, 1], [5], [0, 4, 2], [1, 2], [0, 1, 2, 3, 4, 5]]
+        self.bin_size_x           =     100                         # Like in the paper
+        self.bin_size_y           =     100                         # Like in the paper
+        self.bin_size_z           = 100_000                         # <-- As for now it can be anything
+        self.bin_size_ds_x        =      10                         # Like in the paper (ds = downsampled)
+        self.bin_size_ds_y        =      10                         # Like in the paper
+        self.box_num              =      50                         # Like in the paper
+        self.min_factor           =       0.1                       # Like in the paper
+        self.max_factor           =       0.5                       # Like in the paper
+        self.rotation_constraints = None                            # [[0, 1], [5], [0, 4, 2], [1, 2], [0, 1, 2, 3, 4, 5]]
 
         self.save_dir    = "{:d}_{:d}_{:d}_{:d}_{:.1f}_{:.1f}".format(self.bin_size_x, self.bin_size_y, self.bin_size_z, self.box_num, self.min_factor, self.max_factor)
 
@@ -47,7 +56,7 @@ class Parameters():
         '''
         
 
-        ''' General ''' 
+        ''' General training parameters ''' 
         self.binary_dim                       =   16                        # Values not specified by authors --> Randon choice of dimensions (well not quite, it is an edicated guess). Will most likey be altered when testing   
         self.dim_model                        =  128          
         self.plane_feature_dim                =    7 * self.binary_dim      # 7 Plane features (6 features + height) * the binary_dim
@@ -135,9 +144,11 @@ class Parameters():
                 self.save_dir = save_dir
                 self.cwd = "./" + "saves/" + save_dir + "/"
                 if self.load_model:
-                    with open(self.cwd + "last_step.txt","r") as f:
-                        self.load_step = int(f.read())
-                        print(f"Load step: {self.load_step}")
+                    with open(self.cwd + "last_step.txt","r") as last_step_file:
+                        self.load_step = int(last_step_file.read())
+                        print(f"Resuming training at step: {self.load_step}")
+                        # import logging
+                        # logging.info(f"Resuming training at step: {self.load_step}")
                 break
             else:
                 save_index += 1
