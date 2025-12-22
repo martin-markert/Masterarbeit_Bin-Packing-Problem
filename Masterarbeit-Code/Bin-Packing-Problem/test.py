@@ -8,12 +8,15 @@ import plotly.graph_objects as go
 import random
 import torch
 import time
-import os
 
 import multiprocessing as mp
 from multiprocessing import Queue
+from pathlib import Path
 
 params = Parameters()
+
+EURO_PALLET = [120, 80, 220]
+HALF_PALLET = [80, 60, 220]
 
 def cube_trace(x, y, z, length, width, height, scale, colour):
     edges = go.Scatter3d(                                                                                       # Some edges have to be drawn twice at a cube is no Euler circle or Euler path
@@ -129,18 +132,121 @@ def plot_results(packing_result, bin_size_x, bin_size_y, parameters, file_name):
                         )
 
 
-    os.chdir(params.cwd + "/plots")
-    file = parameters + " " + file_name + ".html"
-    figure.write_html(file)
-    print(f"\n{file_name} plot saved to: {os.path.abspath(file)}")
+    plots_directory = Path(params.cwd) / "plots"
+    plots_directory.mkdir(parents = True, exist_ok = True)
 
+    file = plots_directory / f"{parameters} {file_name}.html"
+    figure.write_html(file)
+    
     # figure.write_html("plot.html")                                                                            # If one works without a GUI that helps seeing the result
     figure.show()
 
 
+def plot_results_animation(packing_result, bin_size_x, bin_size_y, parameters, file_name):                      # TODO: Get this working
+    plots_directory = Path(params.cwd) / "plots"
+    plots_directory.mkdir(parents = True, exist_ok = True)
+
+    figure = go.Figure()
+
+    container_edges, _ = cube_trace(0, 0, 0, bin_size_x, bin_size_y, max([b[2] + b[5] for b in packing_result]), 0.0007 * max(bin_size_x, bin_size_y), (0, 0, 0))
+    figure.add_trace(container_edges)
+
+    frames = []
+    for i in range(len(packing_result)):
+        traces = []
+        for j in range(i + 1):
+            length, width, height, x, y, z = packing_result[j]
+            colour = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
+            scale = 0.0007 * max(bin_size_x, bin_size_y)
+            box_edges, box_surfaces = cube_trace(x, y, z, length, width, height, scale, colour)
+            traces.append(box_surfaces)
+            traces.append(box_edges)
+        frames.append(go.Frame(data = traces, name = f"step{i + 1}"))
+
+    figure.frames = frames
+
+    figure.update_layout(updatemenus = [dict(type = "buttons",
+                                             showactive = False,
+                                             buttons=[dict(label = "Play",
+                                                           method="animate",
+                                                           args = [None, {"frame": {"duration": 500, "redraw": True},
+                                                                          "fromcurrent": True, "transition": {"duration": 0}}]
+                                                    )]
+                                        )]
+                        )
+
+    scale_factor = max(bin_size_x, bin_size_y, max([b[2] + b[5] for b in packing_result]))
+    figure.update_layout(scene = dict(
+        xaxis=dict(showbackground = False, color = 'white'),
+        yaxis=dict(showbackground = False, color = 'white'),
+        zaxis=dict(showbackground = False, color = 'white'),
+        aspectmode = 'manual',
+        aspectratio = dict(
+            x = bin_size_x / scale_factor,
+            y = bin_size_y / scale_factor,
+            z = max([b[2] + b[5] for b in packing_result]) / scale_factor
+        )
+    ), showlegend = False)
+
+    file = plots_directory / f"{parameters} {file_name}.html"
+    figure.write_html(file)
+    
+    # figure.write_html("plot.html")                                                                            # If one works without a GUI that helps seeing the result
+    figure.show()
+
+
+def inject_fixed_pallet_boxes(boxes,
+                              rotation_constraints,
+                              euro_ratio                   = 0.10,
+                              half_pallet_ratio            = 0.10,
+                              fixed_height                 = False,
+                              disable_rotation             = False,
+                              allow_ninety_degree_rotation = True
+                            ):
+    
+    assert len(boxes) == len(rotation_constraints), \
+        f"Amount of boxes ({len(boxes)}) and rotation_constraints ({len(rotation_constraints)}) must have equal size!"
+    
+    amount_boxes = len(boxes)
+    n_euro = int(euro_ratio * amount_boxes)
+    n_half = int(half_pallet_ratio * amount_boxes)
+
+    indices = list(range(amount_boxes))
+    random.shuffle(indices)
+
+    euro_indices = indices[:n_euro]
+    half_indices = indices[n_euro:n_euro + n_half]
+
+    for i in euro_indices:
+        boxes[i][0], boxes[i][1] = EURO_PALLET[0], EURO_PALLET[1]
+        if fixed_height:
+            boxes[i][3] = EURO_PALLET[2]
+        if disable_rotation:
+            rotation_constraints[i] = [0, 0, 0, 0, 0, 0]
+        elif allow_ninety_degree_rotation:
+            rotation_constraints[i] = [0, 0, 0, 1, 1, 1]
+
+    for i in half_indices:
+        boxes[i][0], boxes[i][1] = HALF_PALLET[0], HALF_PALLET[1]
+        if fixed_height:
+            boxes[i][3] = HALF_PALLET[2]
+        if disable_rotation:
+            rotation_constraints[i] = [0, 0, 0, 0, 0, 0]
+        elif allow_ninety_degree_rotation:
+            rotation_constraints[i] = [0, 0, 0, 1, 1, 1]
+
+
+def check_boxes_fit_in_bin(boxes, bin_size_x, bin_size_y, bin_size_z, run_index = None):
+    for i, box in enumerate(boxes):
+        length, width, height = box[0], box[1], box[2]
+        if length > bin_size_x or width > bin_size_y or height > bin_size_z:
+            run_info = f" in run {run_index}" if run_index is not None else ""
+            print(f"Warning{run_info}: Box {i} with size ({length}, {width}, {height}) exceeds container size ({bin_size_x}, {bin_size_y}, {bin_size_z}) and will be ignored.")
+
+
 if __name__ == '__main__':
     process_num              = params.process_num
-    test_num                 = 4
+    amount_of_test_runs      = params.amount_of_test_runs
     box_num                  = params.box_num
     bin_size_x               = params.bin_size_x
     bin_size_y               = params.bin_size_y
@@ -151,7 +257,8 @@ if __name__ == '__main__':
     max_factor               = params.max_factor
     rotation_constraints     = params.rotation_constraints
 
-    load_file_path           = params.cwd + f"/saves/{bin_size_x}_{bin_size_y}_{bin_size_z}_{box_num}_{min_factor}_{max_factor}_0/actor.pth"
+    model_version_number     = params.model_version_number
+    load_file_path           = params.cwd + f"/saves/{bin_size_x}_{bin_size_y}_{bin_size_z}_{box_num}_{min_factor}_{max_factor}_{model_version_number}/actor.pth"
     device                   = params.set_device()
 
     action_queue_list        = [Queue(maxsize = 1) for _ in range(process_num)]
@@ -170,10 +277,17 @@ if __name__ == '__main__':
         rotation_constraints = rotation_constraints
     )
 
-    box_and_rotation_constraints_array_list = None                                                              # Hard-coded boxes and rotation_constraints for constant tests
-    box_and_rotation_constraints_array_list = [Environment.generate_boxes(env, bin_size_x, bin_size_y, min_factor, max_factor, box_num, rotation_constraints) for _ in range(test_num)]
+    # box_and_rotation_constraints_array_list = []                                                              # Hard-coded boxes and rotation_constraints for constant tests
+    box_and_rotation_constraints_array_list = [Environment.generate_boxes(env, bin_size_x, bin_size_y, min_factor, max_factor, box_num, rotation_constraints) for _ in range(amount_of_test_runs)]
     box_array_list = [boxes for boxes, _ in box_and_rotation_constraints_array_list]
     rotation_constraints_list = [rotation_constraints for _, rotation_constraints in box_and_rotation_constraints_array_list]
+
+    # for run_index, (boxes, rotation_constraints) in enumerate(zip(box_array_list, rotation_constraints_list)):# This can be used, if euro pallets and half pallets shall be used
+    #     inject_fixed_pallet_boxes(boxes, rotation_constraints)
+    #     check_boxes_fit_in_bin(boxes, bin_size_x, bin_size_y, bin_size_z, run_index)
+
+
+
 
     for process_index in range(process_num):
         process_object = mp.Process(target = solve_problem,
@@ -203,7 +317,7 @@ if __name__ == '__main__':
     use_ratio_list = []
     packing_result_list = []
 
-    for i in range (test_num):
+    for i in range (amount_of_test_runs):
         starting_time = time.time()
 
         for j in range(box_num):
@@ -228,8 +342,8 @@ if __name__ == '__main__':
                 total_time += time_elapsed
                 break
 
-    use_ratio = sum(use_ratio_list) / test_num
-    use_time = total_time / test_num
+    use_ratio = sum(use_ratio_list) / amount_of_test_runs
+    use_time = total_time / amount_of_test_runs
     print(f"\nAverage use ratio: {use_ratio:.2f} %")
     print(f"Average time: {use_time:.4f} s.")
 
@@ -238,8 +352,11 @@ if __name__ == '__main__':
     best_result = packing_result_list[np.array(use_ratio_list).argmax()]
     worst_result = packing_result_list[np.array(use_ratio_list).argmin()]
 
-    plot_results(best_result,  bin_size_x, bin_size_y, f"{bin_size_x}_{bin_size_y}_{bin_size_z}_{box_num}_{min_factor}_{max_factor}_0", "Best result")
+    plot_results(best_result, bin_size_x, bin_size_y, f"{bin_size_x}_{bin_size_y}_{bin_size_z}_{box_num}_{min_factor}_{max_factor}_{model_version_number}", "Best result")
     print(f"The best use ratio of instances was: {max(use_ratio_list):.2f} %")
 
-    plot_results(worst_result, bin_size_x, bin_size_y, f"{bin_size_x}_{bin_size_y}_{bin_size_z}_{box_num}_{min_factor}_{max_factor}_0", "Worst result")
+    plot_results(worst_result, bin_size_x, bin_size_y, f"{bin_size_x}_{bin_size_y}_{bin_size_z}_{box_num}_{min_factor}_{max_factor}_{model_version_number}", "Worst result")
     print(f"The worst use ratio of instances was: {min(use_ratio_list):.2f} %")
+
+    plot_results_animation(best_result, bin_size_x, bin_size_y, f"{bin_size_x}_{bin_size_y}_{bin_size_z}_{box_num}_{min_factor}_{max_factor}_{model_version_number}", "Animation of best result")
+    plot_results_animation(worst_result, bin_size_x, bin_size_y, f"{bin_size_x}_{bin_size_y}_{bin_size_z}_{box_num}_{min_factor}_{max_factor}_{model_version_number}", "Animation of worst result")
