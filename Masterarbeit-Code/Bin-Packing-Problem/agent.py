@@ -79,8 +79,8 @@ class Agent:
                                                                                                     #               state_env_1,
                                                                                                     #               ...        ]
         
-        for i in range(target_step // process_num):                                                 # The division ensures that each environment contributes approximately target_step / process_num steps. 
                                                                                                     # There are process_num parallel environment processes
+        for i in range(target_step // process_num):                                                 # The division ensures that each environment contributes approximately target_step / process_num steps. 
                                                                                                     # If target_step = 8192 and process_num = 16 --> 8192 / 16 = 512. So the loop runs 512 times. And in each iteration, 16 workers each deliver 1 sample --> a total of 8192 samples.
             # print(f"explore_environment_multiprocessing: {i} out of {target_step // process_num} done.")
             state = list(map(list, zip(*state_list)))                                               # Transposes the state_list to process all box states together and all bin states together in batches. Then makes it a list
@@ -89,7 +89,7 @@ class Agent:
             
             action, probabilities = self.actor.get_action_and_probabilities(state)
             
-            action_list = np.array([action.detach().cpu().numpy() for action in action]).transpose()# Converts tensors back to NumPy (CPU-compatible) for multiprocess communication. Transpose so that each process gets its own action
+            action_list = np.array([action.detach().cpu().numpy() for action in action]).transpose()# Converts tensors back to NumPy (CPU-compatible (Queue.put() needs CPU)) for multiprocess communication. Transpose so that each process gets its own action
             probabilities_list = list(zip(*[probability.detach().cpu().numpy() for probability in probabilities]))
             action_int_list = action_list.tolist()
             [action_queue_list[process_index].put(action_int_list[process_index]) for process_index in range(process_num)]  # Actions are pushed into the action_queue_list. Motivation of those 4 lines: Each parallel environment receives the action selected by the actor.
