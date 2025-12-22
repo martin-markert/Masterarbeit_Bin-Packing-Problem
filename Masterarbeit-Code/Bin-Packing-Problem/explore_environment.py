@@ -29,7 +29,7 @@ def explore_environment(action_queue,                                   # This i
     number_of_iterations = number_of_iterations * box_num               # Basically an artificially inflated number so that this limit is never reached in normal training.
 
     for _ in range(number_of_iterations):
-        print(f"explore_environment: {_} out of {number_of_iterations} done")
+        # print(f"explore_environment: {_} out of {number_of_iterations} done")
         action = action_queue.get()                                     # Get the action (FIFO)
         if isinstance(action, list):
             action = tuple(action)
