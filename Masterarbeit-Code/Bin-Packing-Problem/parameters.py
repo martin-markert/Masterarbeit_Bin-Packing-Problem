@@ -28,8 +28,17 @@ class Parameters():
         '''
         Arguments for train.py
         '''
-        self.amount_of_test_runs  =    20                         # How many times should the model be tested
-        self.model_version_number =       0                         # Relevant, if there are multiple models with the same bin/box parameters
+        self.amount_of_test_runs  =    20                           # How many times should the model be tested
+        self.model_version_number =     0                           # Relevant, if there are multiple models with the same bin/box parameters
+        
+        
+        
+        '''
+        Arguments for train.py
+        '''
+        self.inject_euro_pallets  = False                           # Replace some of the randomly generated pallets by euro pallets or half pallets
+        self.euro_pallet = [120, 80, 220]
+        self.half_pallet = [80, 60, 220]
 
 
 
