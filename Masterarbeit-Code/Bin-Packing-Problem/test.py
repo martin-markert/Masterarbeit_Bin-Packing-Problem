@@ -15,9 +15,6 @@ from pathlib import Path
 
 params = Parameters()
 
-EURO_PALLET = [120, 80, 220]
-HALF_PALLET = [80, 60, 220]
-
 def cube_trace(x, y, z, length, width, height, scale, colour):
     edges = go.Scatter3d(                                                                                       # Some edges have to be drawn twice at a cube is no Euler circle or Euler path
                                                                                                                 # (x[i]y[i]z[i]) is a coordinate, (x[i+1]y[i+1]z[i+1]) the next. A line is drawn between them and so on, making the edges of the cuboids
@@ -142,62 +139,13 @@ def plot_results(packing_result, bin_size_x, bin_size_y, parameters, file_name):
     figure.show()
 
 
-def plot_results_animation(packing_result, bin_size_x, bin_size_y, parameters, file_name):                      # TODO: Get this working
-    plots_directory = Path(params.cwd) / "plots"
-    plots_directory.mkdir(parents = True, exist_ok = True)
-
-    figure = go.Figure()
-
-    container_edges, _ = cube_trace(0, 0, 0, bin_size_x, bin_size_y, max([b[2] + b[5] for b in packing_result]), 0.0007 * max(bin_size_x, bin_size_y), (0, 0, 0))
-    figure.add_trace(container_edges)
-
-    frames = []
-    for i in range(len(packing_result)):
-        traces = []
-        for j in range(i + 1):
-            length, width, height, x, y, z = packing_result[j]
-            colour = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
-            scale = 0.0007 * max(bin_size_x, bin_size_y)
-            box_edges, box_surfaces = cube_trace(x, y, z, length, width, height, scale, colour)
-            traces.append(box_surfaces)
-            traces.append(box_edges)
-        frames.append(go.Frame(data = traces, name = f"step{i + 1}"))
-
-    figure.frames = frames
-
-    figure.update_layout(updatemenus = [dict(type = "buttons",
-                                             showactive = False,
-                                             buttons=[dict(label = "Play",
-                                                           method="animate",
-                                                           args = [None, {"frame": {"duration": 500, "redraw": True},
-                                                                          "fromcurrent": True, "transition": {"duration": 0}}]
-                                                    )]
-                                        )]
-                        )
-
-    scale_factor = max(bin_size_x, bin_size_y, max([b[2] + b[5] for b in packing_result]))
-    figure.update_layout(scene = dict(
-        xaxis=dict(showbackground = False, color = 'white'),
-        yaxis=dict(showbackground = False, color = 'white'),
-        zaxis=dict(showbackground = False, color = 'white'),
-        aspectmode = 'manual',
-        aspectratio = dict(
-            x = bin_size_x / scale_factor,
-            y = bin_size_y / scale_factor,
-            z = max([b[2] + b[5] for b in packing_result]) / scale_factor
-        )
-    ), showlegend = False)
-
-    file = plots_directory / f"{parameters} {file_name}.html"
-    figure.write_html(file)
-    
-    # figure.write_html("plot.html")                                                                            # If one works without a GUI that helps seeing the result
-    figure.show()
+def plot_results_animation(packing_result, bin_size_x, bin_size_y, parameters, file_name):                      # TODO: Write code
+    pass
 
 
 def inject_fixed_pallet_boxes(boxes,
                               rotation_constraints,
-                              euro_ratio                   = 0.10,
+                              euro_pallet_ratio            = 0.10,
                               half_pallet_ratio            = 0.10,
                               fixed_height                 = False,
                               disable_rotation             = False,
@@ -208,8 +156,10 @@ def inject_fixed_pallet_boxes(boxes,
         f"Amount of boxes ({len(boxes)}) and rotation_constraints ({len(rotation_constraints)}) must have equal size!"
     
     amount_boxes = len(boxes)
-    n_euro = int(euro_ratio * amount_boxes)
-    n_half = int(half_pallet_ratio * amount_boxes)
+    n_euro       = int(euro_pallet_ratio * amount_boxes)
+    n_half       = int(half_pallet_ratio * amount_boxes)
+    euro_pallet  = params.euro_pallet
+    half_pallet  = params.half_pallet
 
     indices = list(range(amount_boxes))
     random.shuffle(indices)
@@ -218,18 +168,18 @@ def inject_fixed_pallet_boxes(boxes,
     half_indices = indices[n_euro:n_euro + n_half]
 
     for i in euro_indices:
-        boxes[i][0], boxes[i][1] = EURO_PALLET[0], EURO_PALLET[1]
+        boxes[i][0], boxes[i][1] = euro_pallet[0], euro_pallet[1]
         if fixed_height:
-            boxes[i][3] = EURO_PALLET[2]
+            boxes[i][3] = euro_pallet[2]
         if disable_rotation:
             rotation_constraints[i] = [0, 0, 0, 0, 0, 0]
         elif allow_ninety_degree_rotation:
             rotation_constraints[i] = [0, 0, 0, 1, 1, 1]
 
     for i in half_indices:
-        boxes[i][0], boxes[i][1] = HALF_PALLET[0], HALF_PALLET[1]
+        boxes[i][0], boxes[i][1] = half_pallet[0], half_pallet[1]
         if fixed_height:
-            boxes[i][3] = HALF_PALLET[2]
+            boxes[i][3] = half_pallet[2]
         if disable_rotation:
             rotation_constraints[i] = [0, 0, 0, 0, 0, 0]
         elif allow_ninety_degree_rotation:
@@ -256,6 +206,7 @@ if __name__ == '__main__':
     min_factor               = params.min_factor
     max_factor               = params.max_factor
     rotation_constraints     = params.rotation_constraints
+    inject_euro_pallets      = params.inject_euro_pallets
 
     model_version_number     = params.model_version_number
     load_file_path           = params.cwd + f"/saves/{bin_size_x}_{bin_size_y}_{bin_size_z}_{box_num}_{min_factor}_{max_factor}_{model_version_number}/actor.pth"
@@ -282,9 +233,10 @@ if __name__ == '__main__':
     box_array_list = [boxes for boxes, _ in box_and_rotation_constraints_array_list]
     rotation_constraints_list = [rotation_constraints for _, rotation_constraints in box_and_rotation_constraints_array_list]
 
-    # for run_index, (boxes, rotation_constraints) in enumerate(zip(box_array_list, rotation_constraints_list)):# This can be used, if euro pallets and half pallets shall be used
-    #     inject_fixed_pallet_boxes(boxes, rotation_constraints)
-    #     check_boxes_fit_in_bin(boxes, bin_size_x, bin_size_y, bin_size_z, run_index)
+    if inject_euro_pallets:
+        for run_index, (boxes, rotation_constraints) in enumerate(zip(box_array_list, rotation_constraints_list)):# This can be used, if euro pallets and half pallets shall be used
+            inject_fixed_pallet_boxes(boxes, rotation_constraints)
+            check_boxes_fit_in_bin(boxes, bin_size_x, bin_size_y, bin_size_z, run_index)
 
 
 
