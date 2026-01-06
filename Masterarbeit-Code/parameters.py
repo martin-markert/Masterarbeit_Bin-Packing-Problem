@@ -8,11 +8,11 @@ class Parameters():
         '''
         Arguments for initialise(self)
         '''
-        self.load_model    = True                                   # Keep training the existimg model with the same bin/box parameters or start a new training?
-        self.cwd           = "/home/markert/Masterarbeit-Code/Trainings"    # Current working directory     
-        self.load_step     =              0
-        self.random_seed   = np.random.randint(0, 2**32)
-        self.num_threads   = os.cpu_count()                         # Determines how many CPU threads PyTorch uses internally (use as many as there are CPU cores)
+        self.load_model           = True                            # Keep training the existimg model with the same bin/box parameters or start a new training?
+        self.cwd                  = "/home/markert/Masterarbeit-Code/Trainings/Hauptmodell 100x100"    # Current working directory     
+        self.load_step            =       0
+        self.random_seed          = np.random.randint(0, 2**32)
+        self.num_threads          = os.cpu_count()                  # Determines how many CPU threads PyTorch uses internally (use as many as there are CPU cores)
 
 
 
@@ -28,8 +28,17 @@ class Parameters():
         '''
         Arguments for train.py
         '''
-        self.amount_of_test_runs  =    1024                         # How many times should the model be tested
-        self.model_version_number =       0                         # Relevant, if there are multiple models with the same bin/box parameters
+        self.amount_of_test_runs  =    20                           # How many times should the model be tested
+        self.model_version_number =     0                           # Relevant, if there are multiple models with the same bin/box parameters
+        
+        
+        
+        '''
+        Arguments for train.py
+        '''
+        self.inject_euro_pallets  = False                           # Replace some of the randomly generated pallets by euro pallets or half pallets
+        self.euro_pallet = [120, 80, 220]
+        self.half_pallet = [80, 60, 220]
 
 
 
@@ -42,7 +51,7 @@ class Parameters():
         self.bin_size_ds_x        =      10                         # Like in the paper (ds = downsampled)
         self.bin_size_ds_y        =      10                         # Like in the paper
         self.box_num              =      50                         # Like in the paper
-        self.min_factor           =       0.1                       # Like in the paper (In the paper they divide by 10, I don't, I multiply by 1/10)
+        self.min_factor           =       0.1                       # Like in the paper
         self.max_factor           =       0.5                       # Like in the paper
         self.rotation_constraints = None                            # [[0, 1], [5], [0, 4, 2], [1, 2], [0, 1, 2, 3, 4, 5]]
 
