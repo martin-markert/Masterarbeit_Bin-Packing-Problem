@@ -139,6 +139,61 @@ def plot_results(packing_result, bin_size_x, bin_size_y, parameters, file_name):
     figure.show()
 
 
+def plot_results_animation(packing_result, bin_size_x, bin_size_y, parameters, file_name):                      # TODO: Write code
+    pass
+
+
+def inject_fixed_pallet_boxes(boxes,
+                              rotation_constraints,
+                              euro_pallet_ratio            = 0.10,
+                              half_pallet_ratio            = 0.10,
+                              fixed_height                 = False,
+                              disable_rotation             = False,
+                              allow_ninety_degree_rotation = True
+                            ):
+    
+    assert len(boxes) == len(rotation_constraints), \
+        f"Amount of boxes ({len(boxes)}) and rotation_constraints ({len(rotation_constraints)}) must have equal size!"
+    
+    amount_boxes = len(boxes)
+    n_euro       = int(euro_pallet_ratio * amount_boxes)
+    n_half       = int(half_pallet_ratio * amount_boxes)
+    euro_pallet  = params.euro_pallet
+    half_pallet  = params.half_pallet
+
+    indices = list(range(amount_boxes))
+    random.shuffle(indices)
+
+    euro_indices = indices[:n_euro]
+    half_indices = indices[n_euro:n_euro + n_half]
+
+    for i in euro_indices:
+        boxes[i][0], boxes[i][1] = euro_pallet[0], euro_pallet[1]
+        if fixed_height:
+            boxes[i][3] = euro_pallet[2]
+        if disable_rotation:
+            rotation_constraints[i] = [0, 0, 0, 0, 0, 0]
+        elif allow_ninety_degree_rotation:
+            rotation_constraints[i] = [0, 0, 0, 1, 1, 1]
+
+    for i in half_indices:
+        boxes[i][0], boxes[i][1] = half_pallet[0], half_pallet[1]
+        if fixed_height:
+            boxes[i][3] = half_pallet[2]
+        if disable_rotation:
+            rotation_constraints[i] = [0, 0, 0, 0, 0, 0]
+        elif allow_ninety_degree_rotation:
+            rotation_constraints[i] = [0, 0, 0, 1, 1, 1]
+
+
+def check_boxes_fit_in_bin(boxes, bin_size_x, bin_size_y, bin_size_z, run_index = None):
+    for i, box in enumerate(boxes):
+        length, width, height = box[0], box[1], box[2]
+        if length > bin_size_x or width > bin_size_y or height > bin_size_z:
+            run_info = f" in run {run_index}" if run_index is not None else ""
+            print(f"Warning{run_info}: Box {i} with size ({length}, {width}, {height}) exceeds container size ({bin_size_x}, {bin_size_y}, {bin_size_z}) and will be ignored.")
+
+
 if __name__ == '__main__':
     process_num              = params.process_num
     amount_of_test_runs      = params.amount_of_test_runs
@@ -151,6 +206,7 @@ if __name__ == '__main__':
     min_factor               = params.min_factor
     max_factor               = params.max_factor
     rotation_constraints     = params.rotation_constraints
+    inject_euro_pallets      = params.inject_euro_pallets
 
     model_version_number     = params.model_version_number
     load_file_path           = params.cwd + f"/saves/{bin_size_x}_{bin_size_y}_{bin_size_z}_{box_num}_{min_factor}_{max_factor}_{model_version_number}/actor.pth"
@@ -172,10 +228,18 @@ if __name__ == '__main__':
         rotation_constraints = rotation_constraints
     )
 
-    box_and_rotation_constraints_array_list = None                                                              # Hard-coded boxes and rotation_constraints for constant tests
+    # box_and_rotation_constraints_array_list = []                                                              # Hard-coded boxes and rotation_constraints for constant tests
     box_and_rotation_constraints_array_list = [Environment.generate_boxes(env, bin_size_x, bin_size_y, min_factor, max_factor, box_num, rotation_constraints) for _ in range(amount_of_test_runs)]
     box_array_list = [boxes for boxes, _ in box_and_rotation_constraints_array_list]
     rotation_constraints_list = [rotation_constraints for _, rotation_constraints in box_and_rotation_constraints_array_list]
+
+    if inject_euro_pallets:
+        for run_index, (boxes, rotation_constraints) in enumerate(zip(box_array_list, rotation_constraints_list)):# This can be used, if euro pallets and half pallets shall be used
+            inject_fixed_pallet_boxes(boxes, rotation_constraints)
+            check_boxes_fit_in_bin(boxes, bin_size_x, bin_size_y, bin_size_z, run_index)
+
+
+
 
     for process_index in range(process_num):
         process_object = mp.Process(target = solve_problem,
@@ -240,8 +304,11 @@ if __name__ == '__main__':
     best_result = packing_result_list[np.array(use_ratio_list).argmax()]
     worst_result = packing_result_list[np.array(use_ratio_list).argmin()]
 
-    plot_results(best_result,  bin_size_x, bin_size_y, f"{bin_size_x}_{bin_size_y}_{bin_size_z}_{box_num}_{min_factor}_{max_factor}_{model_version_number}", "Best result")
+    plot_results(best_result, bin_size_x, bin_size_y, f"{bin_size_x}_{bin_size_y}_{bin_size_z}_{box_num}_{min_factor}_{max_factor}_{model_version_number}", "Best result")
     print(f"The best use ratio of instances was: {max(use_ratio_list):.2f} %")
 
     plot_results(worst_result, bin_size_x, bin_size_y, f"{bin_size_x}_{bin_size_y}_{bin_size_z}_{box_num}_{min_factor}_{max_factor}_{model_version_number}", "Worst result")
     print(f"The worst use ratio of instances was: {min(use_ratio_list):.2f} %")
+
+    plot_results_animation(best_result, bin_size_x, bin_size_y, f"{bin_size_x}_{bin_size_y}_{bin_size_z}_{box_num}_{min_factor}_{max_factor}_{model_version_number}", "Animation of best result")
+    plot_results_animation(worst_result, bin_size_x, bin_size_y, f"{bin_size_x}_{bin_size_y}_{bin_size_z}_{box_num}_{min_factor}_{max_factor}_{model_version_number}", "Animation of worst result")
