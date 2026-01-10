@@ -163,12 +163,12 @@ class Transformer_Encoder(nn.Module):
     def __init__(self,
                  dim_model = params.dim_model,
                  num_heads = params.transformer_encoder_num_head,                                               # Amount of attention heads
-                 dim_hidden_1 = params.transformer_encoder_dim_hidden_1,                                        # Hidden layers/feed-forward layers
+                 dim_hidden = params.transformer_encoder_dim_hidden,                                            # Hidden layers/feed-forward layers
                  dropout = params.transformer_encoder_dropout,
                  num_layers = params.transformer_encoder_num_layers):                                           # Amount of encoder layers (see “Nx” in Figure 1 in Vaswani et al., 2017)
         super().__init__()
 
-        layers = nn.TransformerEncoderLayer(dim_model, num_heads, dim_hidden_1, dropout, batch_first = True)    # A single transformer layer (Multi-Head Self-Attention + Feedforward network (MLP) + Residual Connections + LayerNorm)
+        layers = nn.TransformerEncoderLayer(dim_model, num_heads, dim_hidden, dropout, batch_first = True)    # A single transformer layer (Multi-Head Self-Attention + Feedforward network (MLP) + Residual Connections + LayerNorm)
         self.transformer = nn.TransformerEncoder(layers, num_layers)                                            # Stack of num_layers encoder layers:
                                                                                                                 # Executes the layers one after the other. Each layer receives the output of the previous layer as input.                                                                                                                 
 
@@ -194,13 +194,13 @@ class Transformer_Decoder(nn.Module):
     def __init__(self,        
                  dim_model = params.dim_model,
                  num_heads = params.transformer_decoder_num_head,                                               # Amount of attention heads
-                 dim_hidden_1 = params.transformer_decoder_dim_hidden_1,                                        # Hidden layers/feed-forward layers
+                 dim_hidden = params.transformer_decoder_dim_hidden,                                            # Hidden layers/feed-forward layers
                  dropout = params.transformer_decoder_dropout,
                  num_layers = params.transformer_decoder_num_layers                                             # Amount of decoder layers (see “Nx” in Figure 1 in Vaswani et al., 2017)
                 ):
         super().__init__()
 
-        layers = nn.TransformerDecoderLayer(dim_model, num_heads, dim_hidden_1, dropout, batch_first = True)
+        layers = nn.TransformerDecoderLayer(dim_model, num_heads, dim_hidden, dropout, batch_first = True)
         self.transformer = nn.TransformerDecoder(layers, num_layers)
 
     def forward(self, query, key, query_mask = None, key_mask = None):
