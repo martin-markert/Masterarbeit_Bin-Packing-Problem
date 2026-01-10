@@ -508,7 +508,7 @@ def test_transformer_encoder(container_matrix = None):                          
     
     model = Transformer_Encoder(dim_model = params.dim_model,
                                 num_heads = params.transformer_encoder_num_head,
-                                dim_hidden_1 = params.transformer_encoder_dim_hidden_1,
+                                dim_hidden = params.transformer_encoder_dim_hidden,
                                 num_layers = params.transformer_encoder_num_layers
                             )
     out = model(x)
@@ -537,7 +537,7 @@ def test_transformer_decoder(container_matrix = None):
     key = torch.randn(params.batch_size, num_boxes, dim_model)                                              # Shape: [batch_size, seq_len, dim_model] --> seq_len: can differ from query
     model = Transformer_Decoder(dim_model = params.dim_model,
                                 num_heads = params.transformer_encoder_num_head,
-                                dim_hidden_1 = params.transformer_decoder_dim_hidden_1,
+                                dim_hidden = params.transformer_decoder_dim_hidden,
                                 num_layers = params.transformer_decoder_num_layers
                             )
     out = model(query, key)

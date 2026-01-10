@@ -102,7 +102,7 @@ class Parameters():
         self.transformer_encoder_num_head     =    4                        # Number of heads in the multi-head-attention model (see Figure 2 in Vaswani et al., 2017). self.dim_model % self.num_head = 0 shall be the case
                                                                             # When one has several heads per layer the heads are independent of each other. This means that the model can learn different patterns with each head. 
                                                                             # For example, one head might pay most attention to the next word in each sentence, and another head might pay attention to how nouns and adjectives combine.
-        self.transformer_encoder_dim_hidden = 1024                        # Shall be > self.dim_model then the feed-forward network can learn more complex transformations
+        self.transformer_encoder_dim_hidden   = 1024                        # Shall be > self.dim_model then the feed-forward network can learn more complex transformations
         self.transformer_encoder_num_layers   =    2                        # Amount of encoder layers (see “Nx” in Figure 1 in Vaswani et al., 2017)
         self.transformer_encoder_dropout      =    0                        # Dropout: 
                                                                             # Usually ~ 0.1 - 0.3, but 0 could lead to better results in Reinforce Learning, especially as stable action probabilities are better/needed for PPO updates.
@@ -113,7 +113,7 @@ class Parameters():
                                                                             # Uniform capacity: The transformer should have similar expressiveness for both boxes and position/rotation. 
                                                                             # Simplicity: Default values are the same --> easier hyperparameter tuning.
         self.transformer_decoder_num_head     = self.transformer_encoder_num_head
-        self.transformer_decoder_dim_hidden = self.transformer_encoder_dim_hidden
+        self.transformer_decoder_dim_hidden   = self.transformer_encoder_dim_hidden
         self.transformer_decoder_num_layers   = self.transformer_encoder_num_layers
         self.transformer_decoder_dropout      = self.transformer_encoder_dropout
 
