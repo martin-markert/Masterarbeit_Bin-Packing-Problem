@@ -195,7 +195,7 @@ def check_boxes_fit_in_bin(boxes, bin_size_x, bin_size_y, bin_size_z, run_index 
 
 
 if __name__ == '__main__':
-    process_num              = params.process_num
+    sample_num               = params.sample_num
     amount_of_test_runs      = params.amount_of_test_runs
     box_num                  = params.box_num
     bin_size_x               = params.bin_size_x
@@ -212,8 +212,8 @@ if __name__ == '__main__':
     load_file_path           = params.cwd + f"/saves/{bin_size_x}_{bin_size_y}_{bin_size_z}_{box_num}_{min_factor}_{max_factor}_{model_version_number}/actor.pth"
     device                   = params.set_device()
 
-    action_queue_list        = [Queue(maxsize = 1) for _ in range(process_num)]
-    result_queue_list        = [Queue(maxsize = 1) for _ in range(process_num)]
+    action_queue_list        = [Queue(maxsize = 1) for _ in range(sample_num)]
+    result_queue_list        = [Queue(maxsize = 1) for _ in range(sample_num)]
     process_list             = list()
 
     env = Environment(
@@ -241,7 +241,7 @@ if __name__ == '__main__':
 
 
 
-    for process_index in range(process_num):
+    for process_index in range(sample_num):
         process_object = mp.Process(target = solve_problem,
                                     args = (action_queue_list[process_index],
                                             result_queue_list[process_index],
@@ -261,7 +261,7 @@ if __name__ == '__main__':
                 ).to(device)
     actor.load_state_dict(torch.load(load_file_path, map_location = device))
 
-    [action_queue_list[process_index].put(False) for process_index in range(process_num)]
+    [action_queue_list[process_index].put(False) for process_index in range(sample_num)]
     result_list = [result_queue.get() for result_queue in result_queue_list]
     state_list = [result[0] for result in result_list]
 
@@ -281,14 +281,14 @@ if __name__ == '__main__':
             action, _ = actor.get_action_and_probabilities(state)
             action_list = np.array([action.detach().cpu().numpy() for action in action]).transpose()
             action_int_list = action_list.tolist()
-            [action_queue_list[process_index].put(action_int_list[process_index]) for process_index in range(process_num)]  # Queue.put() needs CPU
+            [action_queue_list[process_index].put(action_int_list[process_index]) for process_index in range(sample_num)]  # Queue.put() needs CPU
             result_list = [result_queue.get() for result_queue in result_queue_list]
             result_list = list(map(list, zip(*result_list)))
             state_list = result_list[0]
 
             if result_list[2][0]:                                                                               # result_x = (state, reward, done, use_ratio)
                 time_elapsed = time.time() - starting_time
-                # avg_use_ratio = sum(result_list[3]) / process_num
+                # avg_use_ratio = sum(result_list[3]) / sample_num
                 use_ratio_list.append(max(result_list[3]))
                 packing_result_list.append(result_list[4][np.array(result_list[3]).argmax()])
                 total_time += time_elapsed
