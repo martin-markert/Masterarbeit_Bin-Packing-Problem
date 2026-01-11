@@ -26,10 +26,11 @@ class Parameters():
 
 
         '''
-        Arguments for train.py
+        Arguments for test.py
         '''
-        self.amount_of_test_runs  =    20                           # How many times should the model be tested
-        self.model_version_number =     0                           # Relevant, if there are multiple models with the same bin/box parameters
+        self.sample_num           =      16                         # How many times should each box instance be tested before a new set of boxes is generated?
+        self.amount_of_test_runs  =    1024                         # How many box instances  should the model be test on?
+        self.model_version_number =       0                         # Relevant, if there are multiple models with the same bin/box parameters
         
         
         
@@ -47,7 +48,7 @@ class Parameters():
         '''
         self.bin_size_x           =     100                         # Like in the paper
         self.bin_size_y           =     100                         # Like in the paper
-        self.bin_size_z           = 100_000                         # <-- As for now it can be anything
+        self.bin_size_z           = 100_000                         # Placeholder variable. As for now it can be anything
         self.bin_size_ds_x        =      10                         # Like in the paper (ds = downsampled)
         self.bin_size_ds_y        =      10                         # Like in the paper
         self.box_num              =      50                         # Like in the paper
